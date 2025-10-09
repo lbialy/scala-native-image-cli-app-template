@@ -1,0 +1,92 @@
+# Scala CLI and build artifacts
+.scala-build/
+.metals/
+.bloop/
+.vscode/
+.idea/
+.cursor/
+
+# Native Image artifacts
+*.so
+*.dylib
+*.dll
+*.exe
+dist/
+.out/
+
+# Coursier cache
+.cache/
+~/.cache/coursier/
+~/.scala-build/
+
+# JVM and GraalVM
+.graalvm/
+.graal/
+native-image/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Package manager artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Distribution artifacts
+*.tar.gz
+*.zip
+*.deb
+*.rpm
+*.nupkg
+*.msi
+
+# Checksums
+*.sha256
+checksums.txt
+
+# Native image agent output (temporary)
+agent-output/
+native-image-agent/
+
+# Test artifacts
+test-output/
+coverage/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Secrets and sensitive files
+secrets/
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+
+# Backup files
+*.bak
+*.backup
+*.orig
