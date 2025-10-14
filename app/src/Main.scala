@@ -1,4 +1,5 @@
 import caseapp.*
+import cue4s.*
 
 // Hello command
 case class HelloOptions(
@@ -11,6 +12,14 @@ object HelloCmd extends Command[HelloOptions]:
   def run(options: HelloOptions, remaining: RemainingArgs): Unit =
     if options.verbose then println(s"Hello, ${options.who}! (verbose mode)")
     else println(s"Hello, ${options.who}!")
+    Prompts.sync.use: prompts =>
+      prompts
+        .singleChoice("What's the weather like?", List("great", "okay", "bad"))
+        .getOrThrow
+        .match
+          case "great" => println("That's awesome, take a bike ride!")
+          case "okay"  => println("That's good, go for a walk!")
+          case "bad"   => println("That's not good, stay home and read a book.")
 
 // Version command
 case class VersionOptions()

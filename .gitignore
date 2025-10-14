@@ -1,6 +1,7 @@
 # Scala CLI and build artifacts
 .scala-build/
 .metals/
+.bsp/
 .bloop/
 .vscode/
 .idea/
