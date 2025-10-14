@@ -103,12 +103,12 @@ object MyApp extends CommandsEntryPoint:
 Create the authoritative task runner with all specified targets:
 
 **Tasks:**
-- [ ] Implement basic build/test/run targets
-- [ ] Add agent-assisted runs (agent-run, agent-test)
-- [ ] Implement native build target with configurable options
-- [ ] Add checksums generation
-- [ ] Create completions target for shell scripts
-- [ ] Add variables for project name, paths, etc.
+- [X] Implement basic build/test/run targets
+- [X] Add agent-assisted runs (agent-run, agent-test)
+- [X] Implement native build target with configurable options
+- [X] Add checksums generation (needs a rework anyway)
+- [X] Create completions target for shell scripts
+- [X] Add variables for project name, paths, etc.
 
 **Key targets to implement:**
 ```just
@@ -129,27 +129,7 @@ completions
 ### 2.2 Native Image Agent Scripts
 **Priority: High | Estimated Time: 6-8 hours**
 
-Implement the agent orchestration system:
-
-**Tasks:**
-- [ ] Create `scripts/merge-native-image-meta.sh`
-  - Merge agent JSON outputs into resources
-  - Implement JSON deduplication logic
-  - Handle additive merging (never delete existing metadata)
-- [ ] Create `scripts/strip-test-deps.jar`
-  - Implement classloader diffing logic
-  - Strip test dependencies from metadata
-  - Handle reflection, resource, and config metadata
-- [ ] Create `scripts/ci-env.sh`
-  - Common CI environment setup
-  - Path and naming helpers
-  - Cross-platform compatibility
-
-**Agent workflow:**
-1. Run app/tests with native-image-agent
-2. Merge outputs into `resources/META-INF/native-image`
-3. Strip test dependencies from merged metadata
-4. Preserve existing metadata (additive only)
+DONE with external utility executed from Justfile
 
 ---
 
