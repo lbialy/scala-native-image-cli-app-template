@@ -52,7 +52,7 @@ agent-run ARGS="":
     println("Running with native-image-agent to generate metadata...")
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
     val runArgs = "{{ARGS}}".split(" ")
-    val cmd = Seq("{{SCALA_CLI_BINARY_PATH}}", "run", "app",
+    val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "app",
         "--java-opt=-agentlib:native-image-agent=config-output-dir={{NI_METADATA}}",
         "--") ++ runArgs
     println(cmd.mkString(" "))
@@ -61,7 +61,7 @@ agent-run ARGS="":
     println("Stripping test dependencies from merged metadata...")
     val compileClassPath = os.proc("scala-cli", "compile", "-p", "app").call().out.text()
     val compileTestClassPath = os.proc("scala-cli", "compile", "-p", "app", "--test").call().out.text()
-    os.proc("{{SCALA_CLI_BINARY_PATH}}", "run",
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "run",
         "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2",
         "-M", "filterNativeImageMetadata",
         "--",
@@ -80,13 +80,13 @@ agent-test:
 
     println("Running tests with native-image-agent to generate metadata...")
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
-    os.proc("{{SCALA_CLI_BINARY_PATH}}", "test", "app",
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "test", "app",
         "--java-opt=-agentlib:native-image-agent=config-output-dir={{NI_METADATA}}"
     ).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
     println("Stripping test dependencies from merged metadata...")
     val compileClassPath = os.proc("scala-cli", "compile", "-p", "app").call().out.text()
     val compileTestClassPath = os.proc("scala-cli", "compile", "-p", "app", "--test").call().out.text()
-    os.proc("{{SCALA_CLI_BINARY_PATH}}", "run",
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "run",
         "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2",
         "-M", "filterNativeImageMetadata",
         "--",
@@ -107,7 +107,7 @@ native: agent-test
     val graalvmArgs = "{{GRAALVM_ARGS}}".split(" ")
     val flags = graalvmArgs.map(arg => s"--graalvm-args=$arg")
 
-    os.proc("{{SCALA_CLI_BINARY_PATH}}", "--power", "package", "app", "-f", "--native-image",
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "--power", "package", "app", "-f", "--native-image",
         s"--graalvm-jvm-id={{GRAALVM_ID}}",
         flags, "-o", "dist/{{BINARY_NAME}}"
     ).call(stdout = os.Inherit, stderr = os.Inherit)
@@ -139,7 +139,7 @@ clean: clean-agent
 
     println("Cleaning build artifacts...")
     os.remove.all(os.pwd / "dist")
-    os.proc("{{SCALA_CLI_BINARY_PATH}}", "clean", "app").call(stdout = os.Inherit, stderr = os.Inherit)
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "clean", "app").call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Clean agent output (preserve merged metadata)
 [extension(".sc")]
