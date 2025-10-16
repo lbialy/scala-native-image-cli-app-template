@@ -11,6 +11,8 @@ set unstable
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
+SCALA_CLI_BINARY_PATH := env_var_or_default("SCALA_CLI_BINARY_PATH", "scala-cli")
+
 SCALA_SHEBANG := if os_family() == "windows" {
     "scala-cli.bat"
 } else {

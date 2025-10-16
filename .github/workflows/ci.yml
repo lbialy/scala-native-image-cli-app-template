@@ -69,6 +69,7 @@ jobs:
           $path = (Get-Command scala-cli | Select-Object -ExpandProperty Path)
           echo "scala-cli path: $path"
           echo "scala-cli exists: $(Test-Path $path)"
+          echo "SCALA_CLI_BINARY_PATH=$path" >> $env:GITHUB_ENV
 
       - name: Print scala-cli path - Unix
         if: runner.os != 'Windows'
