@@ -1,11 +1,5 @@
 # Justfile# Scripts written in Scala for cross-platform compatibility.
 
-SCALA_SHEBANG := if os_family() == "windows" {
-    "scala-cli shebang -S 3"
-} else {
-    "/usr/bin/env -S scala-cli shebang -S 3"
-}
-
 # Variables (read SETUP.md to learn more)
 BINARY_NAME := "myapp"
 NI_METADATA := "app/resources/META-INF/native-image"
@@ -13,9 +7,23 @@ AGENT_OUT := ".out/native-image-agent"
 GRAALVM_ID := "graalvm-community:25.0.0"
 GRAALVM_ARGS := "--no-fallback"
 
+set unstable
+
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+SCALA_SHEBANG := if os_family() == "windows" {
+    "scala-cli.bat shebang -S 3"
+} else {
+    "/usr/bin/env -S scala-cli shebang -S 3"
+}
+
 # Print help
 default:
     @just --list --unsorted
+
+# Print the selected GraalVM distribution coursier ID
+graalvm-id:
+    @echo {{GRAALVM_ID}}
 
 # Compile the application
 compile:
@@ -36,6 +44,7 @@ run ARGS="":
 agent-run ARGS="":
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
 
     println("Running with native-image-agent to generate metadata...")
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
@@ -49,7 +58,7 @@ agent-run ARGS="":
     println("Stripping test dependencies from merged metadata...")
     val compileClassPath = os.proc("scala-cli", "compile", "-p", "app").call().out.text()
     val compileTestClassPath = os.proc("scala-cli", "compile", "-p", "app", "--test").call().out.text()
-    os.proc("scala", "run",
+    os.proc("scala-cli", "run",
         "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2",
         "-M", "filterNativeImageMetadata",
         "--",
@@ -59,9 +68,12 @@ agent-run ARGS="":
     ).call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Run tests with native-image-agent to generate metadata
+[extension(".sc")]
 agent-test:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
+
     println("Running tests with native-image-agent to generate metadata...")
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
     os.proc("scala-cli", "test", "app",
@@ -70,7 +82,7 @@ agent-test:
     println("Stripping test dependencies from merged metadata...")
     val compileClassPath = os.proc("scala-cli", "compile", "-p", "app").call().out.text()
     val compileTestClassPath = os.proc("scala-cli", "compile", "-p", "app", "--test").call().out.text()
-    os.proc("scala", "run",
+    os.proc("scala-cli", "run",
         "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2",
         "-M", "filterNativeImageMetadata",
         "--",
@@ -80,9 +92,12 @@ agent-test:
     ).call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Build native image
+[extension(".sc")]
 native: agent-test
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
+
     println(s"Building native image for {{os()}}/{{arch()}}...")
     val graalvmArgs = "{{GRAALVM_ARGS}}".split(" ")
     val flags = graalvmArgs.map(arg => s"--graalvm-args=$arg")
@@ -93,9 +108,12 @@ native: agent-test
     ).call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Generate checksums for dist/ files
+[extension(".sc")]
 checksums:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
+
     println("Generating checksums...")
     os.makeDir.all(os.pwd / "dist")
     val distFiles = os.list(os.pwd / "dist").filter(os.isFile)
@@ -106,26 +124,35 @@ checksums:
     os.write(os.pwd / "dist" / "checksums.txt", checksumContent)
 
 # Clean all build artifacts
+[extension(".sc")]
 clean: clean-agent
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
+
     println("Cleaning build artifacts...")
     os.remove.all(os.pwd / "dist")
     os.proc("scala-cli", "clean", "app").call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Clean agent output (preserve merged metadata)
+[extension(".sc")]
 clean-agent:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
+
     println("Cleaning agent output...")
     os.remove.all(os.pwd / "{{AGENT_OUT}}")
     os.list(os.pwd / "{{NI_METADATA}}").filter(_.last.startsWith("agent-pid")).foreach(os.remove)
     os.remove.all(os.pwd / "{{NI_METADATA}}" / ".lock")
 
 # Clean native-image metadata
+[extension(".sc")]
 clean-meta:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
+
     println("Cleaning native-image metadata...")
     os.remove.all(os.pwd / "{{NI_METADATA}}")
     os.makeDir.all(os.pwd / "{{NI_METADATA}}")
@@ -137,9 +164,12 @@ dev-setup:
     @echo "Development setup complete."
 
 # Display current native-image metadata
+[extension(".sc")]
 show-metadata:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using jvm {{GRAALVM_ID}}
+
     println("Current native-image metadata:")
     val metadataDir = os.pwd / "{{NI_METADATA}}"
     if (os.exists(metadataDir)) {
