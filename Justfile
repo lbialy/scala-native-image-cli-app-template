@@ -12,9 +12,9 @@ set unstable
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 SCALA_SHEBANG := if os_family() == "windows" {
-    "scala-cli.bat shebang -S 3"
+    "scala-cli.bat"
 } else {
-    "/usr/bin/env -S scala-cli shebang -S 3"
+    "/usr/bin/env -S scala-cli shebang"
 }
 
 # Print help
@@ -44,6 +44,7 @@ run ARGS="":
 agent-run ARGS="":
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println("Running with native-image-agent to generate metadata...")
@@ -72,6 +73,7 @@ agent-run ARGS="":
 agent-test:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println("Running tests with native-image-agent to generate metadata...")
@@ -96,6 +98,7 @@ agent-test:
 native: agent-test
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println(s"Building native image for {{os()}}/{{arch()}}...")
@@ -112,6 +115,7 @@ native: agent-test
 checksums:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println("Generating checksums...")
@@ -128,6 +132,7 @@ checksums:
 clean: clean-agent
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println("Cleaning build artifacts...")
@@ -139,6 +144,7 @@ clean: clean-agent
 clean-agent:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println("Cleaning agent output...")
@@ -151,6 +157,7 @@ clean-agent:
 clean-meta:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println("Cleaning native-image metadata...")
@@ -168,6 +175,7 @@ dev-setup:
 show-metadata:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
+    //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
     println("Current native-image metadata:")
