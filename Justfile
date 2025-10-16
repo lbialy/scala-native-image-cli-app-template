@@ -84,8 +84,8 @@ agent-test:
         "--java-opt=-agentlib:native-image-agent=config-output-dir={{NI_METADATA}}"
     ).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
     println("Stripping test dependencies from merged metadata...")
-    val compileClassPath = os.proc("scala-cli", "compile", "-p", "app").call().out.text()
-    val compileTestClassPath = os.proc("scala-cli", "compile", "-p", "app", "--test").call().out.text()
+    val compileClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app").call().out.text()
+    val compileTestClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app", "--test").call().out.text()
     os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "run",
         "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2",
         "-M", "filterNativeImageMetadata",
