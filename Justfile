@@ -86,14 +86,10 @@ agent-test:
     println("Stripping test dependencies from merged metadata...")
     val compileClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app").call().out.text()
     val compileTestClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app", "--test").call().out.text()
-    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "run",
-        "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2",
-        "-M", "filterNativeImageMetadata",
-        "--",
-        "{{NI_METADATA}}/reachability-metadata.json",
-        compileClassPath,
-        compileTestClassPath
-    ).call(stdout = os.Inherit, stderr = os.Inherit)
+    val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2", "-M", "filterNativeImageMetadata", "--", "{{NI_METADATA}}/reachability-metadata.json", compileClassPath, compileTestClassPath)
+    println(cmd.mkString(" "))
+    println(cmd)
+    os.proc(cmd).call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Build native image
 [extension(".sc")]
