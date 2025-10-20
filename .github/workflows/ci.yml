@@ -108,7 +108,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -133,10 +133,14 @@ jobs:
           # Create a combined dist directory with all artifacts
           BINARY_NAME=$(just binary-name)
           mkdir -p combined-dist
-          find artifacts -name "$BINARY_NAME" -type f -exec cp {} combined-dist/ \;
+          find artifacts -name "$BINARY_NAME" -o -name "$BINARY_NAME.exe" -type f -exec cp {} combined-dist/ \;
           
           # Generate checksums for all artifacts
           cd combined-dist
+          ls -hal
+          cd ..
+          rm -fr dist
+          mv combined-dist dist
           just checksums
           
           # Move checksums.txt to artifacts root
