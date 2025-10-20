@@ -27,6 +27,10 @@ default:
 graalvm-id:
     @echo {{GRAALVM_ID}}
 
+# Print the name of the binary to be built
+binary-name:
+    @echo {{BINARY_NAME}}
+
 # Compile the application
 compile:
     @echo "Building {{BINARY_NAME}}..."
@@ -119,8 +123,22 @@ checksums:
     println("Generating checksums...")
     os.makeDir.all(os.pwd / "dist")
     val distFiles = os.list(os.pwd / "dist").filter(os.isFile)
+    val hashCmd = (file: os.Path) => 
+        if !scala.util.Properties.isWin then 
+            Seq("shasum", "-a", "256", file.toString)
+        else
+            Seq(
+                "powershell", "-NoProfile", "-NonInteractive", "-Command",
+                "(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash", 
+                file.toString                                          
+            )
+    
     val checksumContent = distFiles.map { file =>
-        val hash = os.proc("shasum", "-a", "256", file.toString).call().out.text().split(" ")(0)
+        val hashCmdOutput = os.proc(hashCmd(file)).call().out.text()
+        val hash = 
+            if scala.util.Properties.isWin then hashCmdOutput 
+            else hashCmdOutput.split(" ")(0)
+
         s"$hash  ${file.last}"
     }.mkString("\n")
     os.write(os.pwd / "dist" / "checksums.txt", checksumContent)
