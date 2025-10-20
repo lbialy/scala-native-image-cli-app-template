@@ -117,7 +117,7 @@ jobs:
       - name: List all artifacts
         run: |
           echo "Built artifacts:"
-          find artifacts -type f | grep -v "checksums.txt" | sort
+          find artifacts -type f | sort
 
       - name: Setup Just
         uses: extractions/setup-just@v3
@@ -133,12 +133,11 @@ jobs:
           # Create a combined dist directory with all artifacts
           BINARY_NAME=$(just binary-name)
           mkdir -p combined-dist
-          find artifacts -name "$BINARY_NAME" -o -name "$BINARY_NAME.exe" -type f -exec cp {} combined-dist/ \;
+          find artifacts -type f -name "$BINARY_NAME*" -exec cp {} combined-dist/ \;
           
+          tree combined-dist/
+
           # Generate checksums for all artifacts
-          cd combined-dist
-          ls -hal
-          cd ..
           rm -fr dist
           mv combined-dist dist
           just checksums
