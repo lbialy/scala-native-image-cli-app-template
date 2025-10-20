@@ -117,37 +117,37 @@ jobs:
       - name: List all artifacts
         run: |
           echo "Built artifacts:"
-          find artifacts -type f | sort
+          tree artifacts/
 
-      - name: Setup Just
-        uses: extractions/setup-just@v3
+      # - name: Setup Just
+      #   uses: extractions/setup-just@v3
 
-      - name: Setup Scala CLI
-        uses: VirtusLab/scala-cli-setup@v1.9.1
-        with:
-          power: true
-          apps: scala-cli
+      # - name: Setup Scala CLI
+      #   uses: VirtusLab/scala-cli-setup@v1.9.1
+      #   with:
+      #     power: true
+      #     apps: scala-cli
 
-      - name: Generate combined checksums
-        run: |
-          # Create a combined dist directory with all artifacts
-          BINARY_NAME=$(just binary-name)
-          mkdir -p combined-dist
-          find artifacts -type f -name "$BINARY_NAME*" -exec cp {} combined-dist/ \;
+      # - name: Generate combined checksums
+      #   run: |
+      #     # Create a combined dist directory with all artifacts
+      #     BINARY_NAME=$(just binary-name)
+      #     mkdir -p combined-dist
+      #     find artifacts -type f -name "$BINARY_NAME.*" -exec cp {} combined-dist/ \;
           
-          tree combined-dist/
+      #     tree combined-dist/
 
-          # Generate checksums for all artifacts
-          rm -fr dist
-          mv combined-dist dist
-          just checksums
+      #     # Generate checksums for all artifacts
+      #     rm -fr dist
+      #     mv combined-dist dist
+      #     just checksums
           
-          # Move checksums.txt to artifacts root
-          mv checksums.txt ../artifacts/
+      #     # Move checksums.txt to artifacts root
+      #     mv dist/checksums.txt ../artifacts/
 
-      - name: Upload combined checksums
-        uses: actions/upload-artifact@v4
-        with:
-          name: checksums
-          path: artifacts/checksums.txt
-          retention-days: 3 # TODO bump later
+      # - name: Upload combined checksums
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: checksums
+      #     path: artifacts/checksums.txt
+      #     retention-days: 3 # TODO bump later

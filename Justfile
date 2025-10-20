@@ -56,10 +56,10 @@ agent-run ARGS="":
     println("Running with native-image-agent to generate metadata...")
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
     val runArgs = "{{ARGS}}".split(" ")
-    val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "app",
+    val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "--jvm", "{{GRAALVM_ID}}", "app",
         "--java-opt=-agentlib:native-image-agent=config-output-dir={{NI_METADATA}}",
         "--") ++ runArgs
-    println(cmd.mkString(" "))
+
     os.proc(cmd).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
 
     println("Stripping test dependencies from merged metadata...")
@@ -84,15 +84,13 @@ agent-test:
 
     println("Running tests with native-image-agent to generate metadata...")
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
-    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "test", "app",
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "test", "--jvm", "{{GRAALVM_ID}}", "app",
         "--java-opt=-agentlib:native-image-agent=config-output-dir={{NI_METADATA}}"
     ).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
     println("Stripping test dependencies from merged metadata...")
     val compileClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app").call().out.text().trim
     val compileTestClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app", "--test").call().out.text().trim
     val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2", "-M", "filterNativeImageMetadata", "--", "{{NI_METADATA}}/reachability-metadata.json", compileClassPath, compileTestClassPath)
-    println(cmd.mkString(" "))
-    println(cmd)
     os.proc(cmd).call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Build native image
