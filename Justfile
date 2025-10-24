@@ -47,6 +47,7 @@ run ARGS="":
     scala-cli --power run app -- {{ARGS}}
 
 # Run with native-image-agent to generate metadata
+[extension(".sc")]
 agent-run ARGS="":
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
@@ -163,7 +164,7 @@ clean-agent:
 
     println("Cleaning agent output...")
     os.remove.all(os.pwd / "{{AGENT_OUT}}")
-    os.list(os.pwd / "{{NI_METADATA}}").filter(_.last.startsWith("agent-pid")).foreach(os.remove)
+    os.list(os.pwd / "{{NI_METADATA}}").filter(_.last.startsWith("agent-pid")).foreach(os.remove.all)
     os.remove.all(os.pwd / "{{NI_METADATA}}" / ".lock")
 
 # Clean native-image metadata

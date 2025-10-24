@@ -141,32 +141,12 @@ DONE with external utility executed from Justfile
 Implement the continuous integration workflow:
 
 **Tasks:**
-- [ ] Set up matrix strategy for core 4 targets:
-  - linux/amd64, linux/arm64, macos/arm64, windows/amd64
-- [ ] Add optional targets (macos/amd64, windows/arm64) with input guards
-- [ ] Implement caching for Coursier and scala-cli
+- [X] Set up matrix strategy for core 4 targets:
+  - linux/amd64, linux/arm64, macos/arm64, windows/amd64, macos/amd64, windows/arm64
+- [X] Implement caching for Coursier and scala-cli
 - [ ] Add timeout configuration (60 minutes per job)
 - [ ] Pin all actions by commit SHA
 - [ ] Configure permissions (least privilege)
-
-**Matrix configuration:**
-```yaml
-strategy:
-  matrix:
-    include:
-      - os: ubuntu-24.04
-        os_tag: linux
-        arch: x86_64
-      - os: ubuntu-24.04-arm
-        os_tag: linux
-        arch: aarch64
-      - os: macos-14
-        os_tag: macos
-        arch: aarch64
-      - os: windows-2022
-        os_tag: windows
-        arch: x86_64
-```
 
 ### 3.2 Release Workflow (release.yml)
 **Priority: High | Estimated Time: 5-6 hours**

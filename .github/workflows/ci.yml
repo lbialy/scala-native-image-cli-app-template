@@ -62,22 +62,6 @@ jobs:
           jvm: ${{ env.GRAALVM_ID }}
           apps: scala-cli
 
-      - name: Print scala-cli path - Windows
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $path = (Get-Command scala-cli | Select-Object -ExpandProperty Path)
-          echo "scala-cli path: $path"
-          echo "scala-cli exists: $(Test-Path $path)"
-          echo "SCALA_CLI_BINARY_PATH=$path" >> $env:GITHUB_ENV
-
-      - name: Print scala-cli path - Unix
-        if: runner.os != 'Windows'
-        run: |
-          SCALA_CLI_PATH="$(command -v scala-cli)"
-          echo "scala-cli path: $SCALA_CLI_PATH"
-          echo "scala-cli exists: $(test -f "$SCALA_CLI_PATH" && echo true || echo false)"
-          
       - name: Cache Coursier
         uses: actions/cache@v4
         with:
@@ -106,9 +90,6 @@ jobs:
     needs: build
     if: always()
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -119,35 +100,36 @@ jobs:
           echo "Built artifacts:"
           tree artifacts/
 
-      # - name: Setup Just
-      #   uses: extractions/setup-just@v3
-
-      # - name: Setup Scala CLI
-      #   uses: VirtusLab/scala-cli-setup@v1.9.1
-      #   with:
-      #     power: true
-      #     apps: scala-cli
-
-      # - name: Generate combined checksums
-      #   run: |
-      #     # Create a combined dist directory with all artifacts
-      #     BINARY_NAME=$(just binary-name)
-      #     mkdir -p combined-dist
-      #     find artifacts -type f -name "$BINARY_NAME.*" -exec cp {} combined-dist/ \;
+      - name: Zip artifacts and generate checksums
+        run: |
+          # Create zips directory
+          mkdir -p zips
           
-      #     tree combined-dist/
-
-      #     # Generate checksums for all artifacts
-      #     rm -fr dist
-      #     mv combined-dist dist
-      #     just checksums
+          # Zip each artifact directory
+          for dir in artifacts/*/; do
+            if [ -d "$dir" ]; then
+              dirname=$(basename "$dir")
+              echo "Zipping $dirname..."
+              cd artifacts
+              zip -r "../zips/${dirname}.zip" "$dirname"
+              cd ..
+            fi
+          done
           
-      #     # Move checksums.txt to artifacts root
-      #     mv dist/checksums.txt ../artifacts/
+          # List zipped files
+          echo "Zipped artifacts:"
+          ls -la zips/
+          
+          # Generate checksums for all zip files
+          cd zips
+          sha256sum *.zip > checksums.txt
+          echo "Generated checksums:"
+          cat checksums.txt
+          cd ..
 
-      # - name: Upload combined checksums
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: checksums
-      #     path: artifacts/checksums.txt
-      #     retention-days: 3 # TODO bump later
+      - name: Upload zipped artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zipped-artifacts
+          path: zips/
+          retention-days: 3
