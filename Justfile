@@ -119,23 +119,25 @@ checksums:
     //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
+    import java.security.MessageDigest
+    import java.nio.file.Files
+
     println("Generating checksums...")
     os.makeDir.all(os.pwd / "dist")
     val distFiles = os.list(os.pwd / "dist").filter(os.isFile)
-    val hashCmd = (file: os.Path) => 
-        if !scala.util.Properties.isWin then 
-            Seq("shasum", "-a", "256", file.toString)
-        else
-            Seq("powershell", "-NoProfile", "-NonInteractive", "-Command", s"(Get-FileHash -Algorithm SHA256 -LiteralPath '${file.toString}').Hash")
+    
+    def computeSHA256(file: os.Path): String = {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val fileBytes = Files.readAllBytes(file.toNIO)
+        val hashBytes = digest.digest(fileBytes)
+        hashBytes.map(b => f"$b%02x").mkString
+    }
     
     val checksumContent = distFiles.map { file =>
-        val hashCmdOutput = os.proc(hashCmd(file)).call().out.text()
-        val hash = 
-            if scala.util.Properties.isWin then hashCmdOutput 
-            else hashCmdOutput.split(" ")(0)
-
+        val hash = computeSHA256(file)
         s"$hash  ${file.last}"
     }.mkString("\n")
+    
     os.write(os.pwd / "dist" / "checksums.txt", checksumContent)
 
 # Clean all build artifacts
