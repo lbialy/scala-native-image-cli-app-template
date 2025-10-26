@@ -128,7 +128,7 @@ checksums:
         else
             Seq(
                 "powershell", "-NoProfile", "-NonInteractive", "-Command",
-                "([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($args[0])) | ForEach-Object { $_.ToString('x2') }) -join ''", 
+                "Import-Module Microsoft.PowerShell.Utility; (Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash", 
                 file.toString                                          
             )
     
