@@ -113,7 +113,7 @@ native: agent-test
 
 # Generate checksums for dist/ files
 [extension(".sc")]
-checksums:
+checksums OS=os() ARCH=arch():
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
     //> using scala 3.7.3
@@ -138,7 +138,9 @@ checksums:
         s"$hash  ${file.last}"
     }.mkString("\n")
     
-    os.write(os.pwd / "dist" / "checksums.txt", checksumContent)
+    val checksumFileName = s"checksums-{{OS}}-{{ARCH}}.txt"
+    os.write(os.pwd / "dist" / checksumFileName, checksumContent)
+    println(s"Generated checksums file: $checksumFileName")
 
 # Clean all build artifacts
 [extension(".sc")]

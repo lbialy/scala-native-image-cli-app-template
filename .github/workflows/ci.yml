@@ -85,16 +85,7 @@ jobs:
         run: just native
 
       - name: Generate checksums
-        run: just checksums
-
-      - name: Rename checksums file
-        run: |
-          if [ -f "dist/checksums.txt" ]; then
-            mv "dist/checksums.txt" "dist/checksums-${{ matrix.os_tag }}-${{ matrix.arch }}.txt"
-            echo "Renamed checksums file to: checksums-${{ matrix.os_tag }}-${{ matrix.arch }}.txt"
-          else
-            echo "No checksums.txt found in dist/"
-          fi
+        run: just checksums ${{ matrix.os_tag }} ${{ matrix.arch }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
