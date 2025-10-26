@@ -62,21 +62,12 @@ jobs:
           jvm: ${{ env.GRAALVM_ID }}
           apps: scala-cli
 
-      - name: Print scala-cli path - Windows
+      - name: Establish scala-cli binary path - Windows
         if: runner.os == 'Windows'
         shell: powershell
         run: |
           $path = (Get-Command scala-cli | Select-Object -ExpandProperty Path)
-          echo "scala-cli path: $path"
-          echo "scala-cli exists: $(Test-Path $path)"
           echo "SCALA_CLI_BINARY_PATH=$path" >> $env:GITHUB_ENV
-
-      - name: Print scala-cli path - Unix
-        if: runner.os != 'Windows'
-        run: |
-          SCALA_CLI_PATH="$(command -v scala-cli)"
-          echo "scala-cli path: $SCALA_CLI_PATH"
-          echo "scala-cli exists: $(test -f "$SCALA_CLI_PATH" && echo true || echo false)"
 
       - name: Cache Coursier
         uses: actions/cache@v4
@@ -92,6 +83,18 @@ jobs:
 
       - name: Build Native Image
         run: just native
+
+      - name: Generate checksums
+        run: just checksums
+
+      - name: Rename checksums file
+        run: |
+          if [ -f "dist/checksums.txt" ]; then
+            mv "dist/checksums.txt" "dist/checksums-${{ matrix.os_tag }}-${{ matrix.arch }}.txt"
+            echo "Renamed checksums file to: checksums-${{ matrix.os_tag }}-${{ matrix.arch }}.txt"
+          else
+            echo "No checksums.txt found in dist/"
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -115,37 +118,3 @@ jobs:
         run: |
           echo "Built artifacts:"
           tree artifacts/
-
-      - name: Zip artifacts and generate checksums
-        run: |
-          # Create zips directory
-          mkdir -p zips
-          
-          # Zip each artifact directory
-          for dir in artifacts/*/; do
-            if [ -d "$dir" ]; then
-              dirname=$(basename "$dir")
-              echo "Zipping $dirname..."
-              cd artifacts
-              zip -r "../zips/${dirname}.zip" "$dirname"
-              cd ..
-            fi
-          done
-          
-          # List zipped files
-          echo "Zipped artifacts:"
-          ls -la zips/
-          
-          # Generate checksums for all zip files
-          cd zips
-          sha256sum *.zip > checksums.txt
-          echo "Generated checksums:"
-          cat checksums.txt
-          cd ..
-
-      - name: Upload zipped artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: zipped-artifacts
-          path: zips/
-          retention-days: 3
