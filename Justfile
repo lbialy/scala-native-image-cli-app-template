@@ -126,7 +126,7 @@ checksums:
         if !scala.util.Properties.isWin then 
             Seq("shasum", "-a", "256", file.toString)
         else
-            Seq("(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash", file.toString)
+            Seq("pwsh", "-Command", "(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash", file.toString)
     
     val checksumContent = distFiles.map { file =>
         val hashCmdOutput = os.proc(hashCmd(file)).call().out.text()
