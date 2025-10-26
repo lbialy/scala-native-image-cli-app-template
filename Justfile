@@ -128,7 +128,7 @@ checksums:
         else
             Seq(
                 "powershell", "-NoProfile", "-NonInteractive", "-Command",
-                "(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash", 
+                "Get-FileHash -Algorithm SHA256 -LiteralPath $args[0] | Select-Object -ExpandProperty Hash", 
                 file.toString                                          
             )
     
