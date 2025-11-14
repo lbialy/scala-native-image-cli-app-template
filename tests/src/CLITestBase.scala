@@ -3,6 +3,9 @@ import os.Path
 import scala.util.{Try, Success, Failure}
 import scala.util.boundary, boundary.break
 import os.RelPath
+import com.pty4j.PtyProcessBuilder
+import java.nio.charset.StandardCharsets
+import scala.jdk.CollectionConverters.*
 
 /** Base class for end-to-end blackbox tests against a compiled CLI artifact.
   *
@@ -98,7 +101,7 @@ abstract class CLITestBase extends FunSuite:
     * }}}
     */
   class InteractiveCLISession private[CLITestBase] (
-      private val subprocess: os.SubProcess,
+      private val process: Process,
       private val args: Seq[String]
   ):
     private val stdoutBuffer = SyncBuffer()
@@ -112,7 +115,7 @@ abstract class CLITestBase extends FunSuite:
     private val stdoutThread = new Thread:
       override def run(): Unit =
         try
-          val reader = subprocess.stdout
+          val reader = process.getInputStream()
           val buffer = new Array[Byte](8192)
           var bytesRead = reader.read(buffer)
           while bytesRead != -1 do
@@ -123,7 +126,7 @@ abstract class CLITestBase extends FunSuite:
     private val stderrThread = new Thread:
       override def run(): Unit =
         try
-          val reader = subprocess.stderr
+          val reader = process.getErrorStream()
           val buffer = new Array[Byte](8192)
           var bytesRead = reader.read(buffer)
           while bytesRead != -1 do
@@ -152,7 +155,7 @@ abstract class CLITestBase extends FunSuite:
       println(s"STDOUT (${stdout.length} chars):\n$stdout")
       if stderr.nonEmpty then
         println(s"STDERR (${stderr.length} chars):\n$stderr")
-      println(s"Process alive: ${subprocess.isAlive()}")
+      println(s"Process alive: ${process.isAlive()}")
       println("=" * 50 + "\n")
 
     /** Writes text to stdin. Can be called multiple times for interactive communication.
@@ -161,8 +164,9 @@ abstract class CLITestBase extends FunSuite:
       if stdinClosed then throw IllegalStateException("Cannot write to stdin: it has already been closed")
       else if processFinished then throw IllegalStateException("Cannot write to stdin: process has already finished")
       else
-        subprocess.stdin.write(text.getBytes)
-        subprocess.stdin.flush()
+        val stdin = process.getOutputStream()
+        stdin.write(text.getBytes(StandardCharsets.UTF_8))
+        stdin.flush()
         if debugMode then
           Thread.sleep(100) // Give time for output to arrive
           printDebugSnapshot(s"After writing:\n${escapeForDisplay(text)}")
@@ -281,7 +285,7 @@ abstract class CLITestBase extends FunSuite:
             break(currentOutput)
 
           // Check if process finished
-          if !subprocess.isAlive() then
+          if !process.isAlive() then
             processFinished = true
             stdoutThread.join(1000) // Wait for reader thread to finish
             if debugMode then
@@ -308,7 +312,7 @@ abstract class CLITestBase extends FunSuite:
           val textToMatch = if ignoreAnsi then stripAnsiCodes(currentOutput) else currentOutput
           if textToMatch.contains(pattern) then break(currentOutput)
 
-          if !subprocess.isAlive() then
+          if !process.isAlive() then
             processFinished = true
             stderrThread.join(1000) // Wait for reader thread to finish
             break(stderrBuffer.current)
@@ -331,7 +335,7 @@ abstract class CLITestBase extends FunSuite:
 
     /** Checks if the process is still running.
       */
-    def isAlive: Boolean = subprocess.isAlive()
+    def isAlive: Boolean = process.isAlive()
 
     /** Closes stdin and waits for the process to finish, returning the final result.
       *
@@ -342,21 +346,21 @@ abstract class CLITestBase extends FunSuite:
         printDebugSnapshot(s"Closing session (timeout: ${waitTimeoutMs}ms)")
 
       if !stdinClosed then
-        subprocess.stdin.close()
+        process.getOutputStream().close()
         stdinClosed = true
 
       // Wait for process with timeout
       val startTime = System.currentTimeMillis()
-      while subprocess.isAlive() && (System.currentTimeMillis() - startTime < waitTimeoutMs) do
+      while process.isAlive() && (System.currentTimeMillis() - startTime < waitTimeoutMs) do
         Thread.sleep(100)
 
-      if subprocess.isAlive() then
-        subprocess.destroy()
+      if process.isAlive() then
+        process.destroy()
         Thread.sleep(1000)
-        if subprocess.isAlive() then
-          subprocess.destroyForcibly()
+        if process.isAlive() then
+          process.destroyForcibly()
 
-      val exitCode = if subprocess.isAlive() then -1 else subprocess.exitCode()
+      val exitCode = if process.isAlive() then -1 else process.exitValue()
       processFinished = true
 
       // Wait for reader threads to finish
@@ -452,13 +456,19 @@ abstract class CLITestBase extends FunSuite:
   protected def startInteractiveCli(args: String*): InteractiveCLISession =
     val binary = cliBinaryPath
     val cmd = buildCommand(binary, args)
-    val proc = os.proc(cmd)
-    val subprocess = proc.spawn(
-      stdin = os.Pipe,
-      stdout = os.Pipe,
-      stderr = os.Pipe
-    )
-    InteractiveCLISession(subprocess, args)
+
+    // Build environment map with TERM set if not present
+    val env = new java.util.HashMap[String, String](System.getenv())
+    if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
+
+    // Create PTY process for proper terminal interaction
+    val process = new PtyProcessBuilder()
+      .setCommand(cmd.toArray)
+      .setEnvironment(env)
+      .setDirectory(os.pwd.toString)
+      .start()
+
+    InteractiveCLISession(process, args)
 
   /** Runs the CLI with the given arguments and returns the result.
     *
@@ -483,41 +493,43 @@ abstract class CLITestBase extends FunSuite:
     val debugMode = sys.env.get("CLI_TEST_DEBUG").exists(v => v.toLowerCase == "true" || v == "1")
     val binary = cliBinaryPath
     val cmd = buildCommand(binary, args)
-    val proc = os.proc(cmd)
 
     if debugMode then
       println(s"[runCliWithStdin] Running command: ${cmd.mkString(" ")}")
-      println(s"[runCliWithStdin] Stdin: ${stdin.replace("\n", "\\n")}")
+      println(s"[runCliWithStdin] Stdin: ${stdin.replace("\n", "\\n").replace("\r", "\\r")}")
       println(s"[runCliWithStdin] Timeout: ${timeoutMs}ms")
 
     if stdin.nonEmpty then
-      // Use spawn for stdin input
-      val subprocess = proc.spawn(
-        stdin = os.Pipe,
-        stdout = os.Pipe,
-        stderr = os.Pipe
-      )
+      // Build environment map with TERM set if not present
+      val env = new java.util.HashMap[String, String](System.getenv())
+      if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
+
+      // Use PTY for stdin input to ensure proper terminal handling on all platforms
+      val process = try
+        new PtyProcessBuilder()
+          .setCommand(cmd.toArray)
+          .setEnvironment(env)
+          .setDirectory(os.pwd.toString)
+          .start()
+      catch
+        case e: Exception =>
+          if debugMode then
+            println(s"[runCliWithStdin] Failed to start PTY process: ${e.getMessage}")
+            e.printStackTrace()
+          throw e
 
       if debugMode then
-        println(s"[runCliWithStdin] Process spawned")
-
-      // Write stdin to the process
-      val stdinBytes = stdin.getBytes
-      try
-        subprocess.stdin.write(stdinBytes)
-        subprocess.stdin.flush()
-        subprocess.stdin.close()
-      catch
-        case _: java.io.IOException => () // stdin already closed, ignore
+        println(s"[runCliWithStdin] PTY process spawned")
 
       // Read stdout and stderr in separate threads to avoid blocking
+      // Start these BEFORE writing stdin to avoid race conditions
       val stdoutBuffer = SyncBuffer()
       val stderrBuffer = SyncBuffer()
 
       val stdoutThread = new Thread:
         override def run(): Unit =
           try
-            val reader = subprocess.stdout
+            val reader = process.getInputStream()
             val buffer = new Array[Byte](4096)
             var bytesRead = reader.read(buffer)
             while bytesRead != -1 do
@@ -528,7 +540,7 @@ abstract class CLITestBase extends FunSuite:
       val stderrThread = new Thread:
         override def run(): Unit =
           try
-            val reader = subprocess.stderr
+            val reader = process.getErrorStream()
             val buffer = new Array[Byte](4096)
             var bytesRead = reader.read(buffer)
             while bytesRead != -1 do
@@ -539,23 +551,43 @@ abstract class CLITestBase extends FunSuite:
       stdoutThread.start()
       stderrThread.start()
 
+      // Give threads a moment to start reading before we write stdin
+      Thread.sleep(50)
+
+      // Write stdin to the process (but DON'T close it yet for PTY processes)
+      val stdinBytes = stdin.getBytes(StandardCharsets.UTF_8)
+      val processStdin = process.getOutputStream()
+      try
+        processStdin.write(stdinBytes)
+        processStdin.flush()
+        if debugMode then
+          println(s"[runCliWithStdin] Stdin written, keeping stream open until process completes")
+      catch
+        case _: java.io.IOException => () // stdin already closed, ignore
+
       // Wait for process to complete with timeout
       val startTime = System.currentTimeMillis()
-      while subprocess.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do
+      while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do
         Thread.sleep(100)
 
-      val exitCode = if subprocess.isAlive() then
+      // Now close stdin after process completes or times out
+      try
+        processStdin.close()
+      catch
+        case _: java.io.IOException => ()
+
+      val exitCode = if process.isAlive() then
         // Process didn't finish in time, kill it
         if debugMode then
           println(s"[runCliWithStdin] Process timeout after ${timeoutMs}ms, killing process")
           println(s"[runCliWithStdin] Stdout so far: ${stdoutBuffer.current}")
           println(s"[runCliWithStdin] Stderr so far: ${stderrBuffer.current}")
-        subprocess.destroy()
+        process.destroy()
         Thread.sleep(1000)
-        if subprocess.isAlive() then subprocess.destroyForcibly()
+        if process.isAlive() then process.destroyForcibly()
         -1
       else
-        subprocess.exitCode()
+        process.exitValue()
 
       // Wait for reader threads to finish
       stdoutThread.join(2000)
@@ -572,7 +604,8 @@ abstract class CLITestBase extends FunSuite:
         exitCode = exitCode
       )
     else
-      // No stdin, just call normally
+      // No stdin, use os.proc for simplicity
+      val proc = os.proc(cmd)
       val result = proc.call(
         stdout = os.Pipe,
         stderr = os.Pipe,

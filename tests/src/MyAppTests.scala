@@ -3,9 +3,8 @@ import munit.FunSuite
 class MyAppTests extends CLITestBase:
 
   test("hello command with --who Scala and stdin input selects great") {
-    // Windows may need \r\n for proper line ending handling
-    val stdin = if System.getProperty("os.name").toLowerCase.contains("win") then "\r\n" else "\n"
-    val result = runCliWithStdin(stdin = stdin)(
+    // Using PTY, stdin should work consistently across all platforms
+    val result = runCliWithStdin(stdin = "\n")(
       "hello",
       "--who",
       "Scala"
