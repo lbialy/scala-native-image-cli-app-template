@@ -22,7 +22,7 @@ class MyAppTests extends CLITestBase:
     val greeting = session.readUntil("Hello, Scala!", timeoutMs = 10000, ignoreAnsi = true)
     assertStdoutContainsIgnoringAnsi(CLIResult(greeting, "", 0), "Hello, Scala!")
 
-    // Wait for the weather prompt
+    // Wait for the weather prompt (use default timeout from CLI_TEST_TIMEOUT_MS or 5000ms)
     val prompt = session.readUntil("weather", ignoreAnsi = true)
 
     // Respond to the prompt

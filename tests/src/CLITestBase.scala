@@ -78,6 +78,8 @@ abstract class CLITestBase extends FunSuite:
     private val stderrBuffer = SyncBuffer()
     private var stdinClosed = false
     private var processFinished = false
+    private val debugMode = sys.env.get("CLI_TEST_DEBUG").exists(v => v.toLowerCase == "true" || v == "1")
+    private val defaultTimeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").flatMap(_.toIntOption).getOrElse(5000)
 
     // Start background threads to read stdout and stderr
     private val stdoutThread = new Thread:
@@ -105,6 +107,27 @@ abstract class CLITestBase extends FunSuite:
     stdoutThread.start()
     stderrThread.start()
 
+    /** Escapes special characters for display in debug output.
+      */
+    private def escapeForDisplay(text: String): String =
+      text
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace("\u001b", "\\u001b")
+
+    /** Prints a debug snapshot of current stdout/stderr state.
+      */
+    private def printDebugSnapshot(label: String): Unit =
+      val stdout = stdoutBuffer.current
+      val stderr = stderrBuffer.current
+      println(s"\n========== DEBUG: $label ==========")
+      println(s"STDOUT (${stdout.length} chars):\n$stdout")
+      if stderr.nonEmpty then
+        println(s"STDERR (${stderr.length} chars):\n$stderr")
+      println(s"Process alive: ${subprocess.isAlive()}")
+      println("=" * 50 + "\n")
+
     /** Writes text to stdin. Can be called multiple times for interactive communication.
       */
     def write(text: String): Unit =
@@ -113,6 +136,9 @@ abstract class CLITestBase extends FunSuite:
       else
         subprocess.stdin.write(text.getBytes)
         subprocess.stdin.flush()
+        if debugMode then
+          Thread.sleep(100) // Give time for output to arrive
+          printDebugSnapshot(s"After writing:\n${escapeForDisplay(text)}")
 
     /** Writes a line to stdin (adds newline automatically).
       */
@@ -209,26 +235,36 @@ abstract class CLITestBase extends FunSuite:
       * @param pattern
       *   The substring to wait for
       * @param timeoutMs
-      *   Optional timeout in milliseconds (default: 5000ms)
+      *   Optional timeout in milliseconds (default: value from CLI_TEST_TIMEOUT_MS env var or 5000ms)
       * @param ignoreAnsi
       *   If true, strips ANSI codes before matching (default: true)
       */
-    def readUntil(pattern: String, timeoutMs: Int = 5000, ignoreAnsi: Boolean = true): String =
+    def readUntil(pattern: String, timeoutMs: Int = -1, ignoreAnsi: Boolean = true): String =
+      val actualTimeout = if timeoutMs == -1 then defaultTimeoutMs else timeoutMs
+      if debugMode then
+        printDebugSnapshot(s"Before readUntil:\n'$pattern' (timeout: ${actualTimeout}ms)")
       boundary[String]:
         val startTime = System.currentTimeMillis()
-        while System.currentTimeMillis() - startTime < timeoutMs do
+        while System.currentTimeMillis() - startTime < actualTimeout do
           val currentOutput = stdoutBuffer.current
           val textToMatch = if ignoreAnsi then stripAnsiCodes(currentOutput) else currentOutput
-          if textToMatch.contains(pattern) then break(currentOutput)
+          if textToMatch.contains(pattern) then
+            if debugMode then
+              printDebugSnapshot(s"After readUntil found:\n'$pattern'")
+            break(currentOutput)
 
           // Check if process finished
           if !subprocess.isAlive() then
             processFinished = true
             stdoutThread.join(1000) // Wait for reader thread to finish
+            if debugMode then
+              printDebugSnapshot(s"Process finished while waiting for:\n'$pattern'")
             break(stdoutBuffer.current)
 
           Thread.sleep(50) // Small delay to avoid busy-waiting
         end while
+        if debugMode then
+          printDebugSnapshot(s"Timeout waiting for:\n'$pattern'")
         throw RuntimeException(
           s"Timeout waiting for pattern '$pattern' in stdout. Current output:\n${stdoutBuffer.current}"
         )
@@ -236,10 +272,11 @@ abstract class CLITestBase extends FunSuite:
     /** Reads from stderr until the given pattern appears (blocking). Returns all stderr output read so far (including
       * the pattern).
       */
-    def readStderrUntil(pattern: String, timeoutMs: Int = 5000, ignoreAnsi: Boolean = true): String =
+    def readStderrUntil(pattern: String, timeoutMs: Int = -1, ignoreAnsi: Boolean = true): String =
+      val actualTimeout = if timeoutMs == -1 then defaultTimeoutMs else timeoutMs
       boundary[String]:
         val startTime = System.currentTimeMillis()
-        while System.currentTimeMillis() - startTime < timeoutMs do
+        while System.currentTimeMillis() - startTime < actualTimeout do
           val currentOutput = stderrBuffer.current
           val textToMatch = if ignoreAnsi then stripAnsiCodes(currentOutput) else currentOutput
           if textToMatch.contains(pattern) then break(currentOutput)
@@ -270,19 +307,37 @@ abstract class CLITestBase extends FunSuite:
     def isAlive: Boolean = subprocess.isAlive()
 
     /** Closes stdin and waits for the process to finish, returning the final result.
+      *
+      * @param waitTimeoutMs Maximum time to wait for process to finish (default: 30000ms / 30 seconds)
       */
-    def close(): CLIResult =
+    def close(waitTimeoutMs: Long = 30000): CLIResult =
+      if debugMode then
+        printDebugSnapshot(s"Closing session (timeout: ${waitTimeoutMs}ms)")
+
       if !stdinClosed then
         subprocess.stdin.close()
         stdinClosed = true
 
-      subprocess.waitFor()
-      val exitCode = subprocess.exitCode()
+      // Wait for process with timeout
+      val startTime = System.currentTimeMillis()
+      while subprocess.isAlive() && (System.currentTimeMillis() - startTime < waitTimeoutMs) do
+        Thread.sleep(100)
+
+      if subprocess.isAlive() then
+        subprocess.destroy()
+        Thread.sleep(1000)
+        if subprocess.isAlive() then
+          subprocess.destroyForcibly()
+
+      val exitCode = if subprocess.isAlive() then -1 else subprocess.exitCode()
       processFinished = true
 
       // Wait for reader threads to finish
       stdoutThread.join(2000)
       stderrThread.join(2000)
+
+      if debugMode then
+        printDebugSnapshot(s"Session closed with exit code: $exitCode")
 
       CLIResult(
         stdout = stdoutBuffer.current,
