@@ -78,11 +78,14 @@ jobs:
       - name: Build
         run: just compile
 
-      - name: Test
-        run: just test
+      - name: Run agent-test (generate metadata from unit tests)
+        run: just agent-test
 
-      - name: Build Native Image
-        run: just native
+      - name: Run agent-e2e-test (generate metadata from e2e tests)
+        run: just agent-e2e-test
+
+      - name: Run e2e-test (build native & test)
+        run: just e2e-test
 
       - name: Generate checksums
         run: just checksums ${{ matrix.os_tag }} ${{ matrix.arch }}

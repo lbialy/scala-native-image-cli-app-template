@@ -4,8 +4,10 @@
 BINARY_NAME := "myapp"
 NI_METADATA := "app/resources/META-INF/native-image"
 AGENT_OUT := ".out/native-image-agent"
-GRAALVM_ID := "graalvm-community:25.0.0"
+GRAALVM_ID := "graalvm-community:23.0.2"
 GRAALVM_ARGS := "--no-fallback -H:+StaticExecutableWithDynamicLibC"
+# possible values: "output" or "merge"
+GRAALVM_AGENT_MODE := "merge"
 
 set unstable
 
@@ -36,7 +38,7 @@ compile:
     @echo "Building {{BINARY_NAME}}..."
     scala-cli compile app
 
-# Run tests
+# Run unit tests
 test:
     @echo "Running tests in {{BINARY_NAME}}..."
     scala-cli test app
@@ -46,7 +48,7 @@ run ARGS="":
     @echo "Running {{BINARY_NAME}} with args: {{ARGS}}"
     scala-cli --power run app -- {{ARGS}}
 
-# Run with native-image-agent to generate metadata
+# Run with native-image-agent to generate reachability metadata
 [extension(".sc")]
 agent-run ARGS="":
     #! {{SCALA_SHEBANG}}
@@ -58,24 +60,12 @@ agent-run ARGS="":
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
     val runArgs = "{{ARGS}}".split(" ")
     val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "--jvm", "{{GRAALVM_ID}}", "app",
-        "--java-opt=-agentlib:native-image-agent=config-output-dir={{NI_METADATA}}",
+        "--java-opt=-agentlib:native-image-agent=config-{{GRAALVM_AGENT_MODE}}-dir={{NI_METADATA}}",
         "--") ++ runArgs
 
     os.proc(cmd).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
 
-    println("Stripping test dependencies from merged metadata...")
-    val compileClassPath = os.proc("scala-cli", "compile", "-p", "app").call().out.text().trim
-    val compileTestClassPath = os.proc("scala-cli", "compile", "-p", "app", "--test").call().out.text().trim
-    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "run",
-        "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2",
-        "-M", "filterNativeImageMetadata",
-        "--",
-        "{{NI_METADATA}}/reachability-metadata.json",
-        compileClassPath,
-        compileTestClassPath
-    ).call(stdout = os.Inherit, stderr = os.Inherit)
-
-# Run tests with native-image-agent to generate metadata
+# Run tests with native-image-agent to generate reachability metadata
 [extension(".sc")]
 agent-test:
     #! {{SCALA_SHEBANG}}
@@ -85,18 +75,75 @@ agent-test:
 
     println("Running tests with native-image-agent to generate metadata...")
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
+    println(Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "test", "--jvm", "{{GRAALVM_ID}}", "app",
+        "--java-opt=-agentlib:native-image-agent=config-{{GRAALVM_AGENT_MODE}}-dir={{NI_METADATA}}").mkString(" "))
     os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "test", "--jvm", "{{GRAALVM_ID}}", "app",
-        "--java-opt=-agentlib:native-image-agent=config-output-dir={{NI_METADATA}}"
+        "--java-opt=-agentlib:native-image-agent=config-{{GRAALVM_AGENT_MODE}}-dir={{NI_METADATA}}"
     ).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
     println("Stripping test dependencies from merged metadata...")
     val compileClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app").call().out.text().trim
     val compileTestClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app", "--test").call().out.text().trim
-    val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.2", "-M", "filterNativeImageMetadata", "--", "{{NI_METADATA}}/reachability-metadata.json", compileClassPath, compileTestClassPath)
+    val cmd = Seq(
+        raw"{{SCALA_CLI_BINARY_PATH}}", "run",
+        "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.3",
+        "-M", "filterNativeImageMetadata",
+        "--",
+        "{{NI_METADATA}}/reachability-metadata.json",
+        compileClassPath,
+        compileTestClassPath
+    )
     os.proc(cmd).call(stdout = os.Inherit, stderr = os.Inherit)
+
+# Build a runnable jar
+[extension(".sc")]
+build:
+    #! {{SCALA_SHEBANG}}
+    //> using toolkit default
+    //> using scala 3.7.3
+    //> using jvm {{GRAALVM_ID}}
+
+    println("Building runnable jar for {{BINARY_NAME}}...")
+    os.makeDir.all(os.pwd / "dist")
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "package", "app", "--assembly", "-o", "dist/{{BINARY_NAME}}.jar", "-f")
+        .call(stdout = os.Inherit, stderr = os.Inherit)
+    println("Runnable jar built successfully.")
+
+# Run e2e tests against jvm version of the app with native-image-agent to generate reachability metadata 
+[extension(".sc")]
+agent-e2e-test: build
+    #! {{SCALA_SHEBANG}}
+    //> using toolkit default
+    //> using scala 3.7.3
+    //> using jvm {{GRAALVM_ID}}
+
+    println("Running e2e tests with native-image-agent for {{BINARY_NAME}}.jar ...")
+    os.proc(
+        raw"{{SCALA_CLI_BINARY_PATH}}", "test", "tests", "--jvm", "{{GRAALVM_ID}}"
+    ).call(stdout = os.Inherit, stderr = os.Inherit, env = Map(
+        "CLI_BINARY_PATH" -> "dist/{{BINARY_NAME}}.jar",
+        "NI_AGENT" -> "true",
+        "NI_AGENT_MODE" -> "{{GRAALVM_AGENT_MODE}}",
+        "JAVA_HOME" -> sys.props("java.home")
+    ))
+
+# Run e2e tests against the native binary to verify correctness of the final artifact
+[extension(".sc")]
+e2e-test: build-native
+    #! {{SCALA_SHEBANG}}
+    //> using toolkit default
+    //> using scala 3.7.3
+    //> using jvm {{GRAALVM_ID}}
+
+    println("Running e2e tests against native binary...")
+    os.proc(
+        raw"{{SCALA_CLI_BINARY_PATH}}", "test", "tests"
+    ).call(stdout = os.Inherit, stderr = os.Inherit, env = Map(
+        "CLI_BINARY_PATH" -> s"dist/{{BINARY_NAME}}"
+    ))
 
 # Build native image
 [extension(".sc")]
-native: agent-test
+build-native: agent-test
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
     //> using scala 3.7.3
