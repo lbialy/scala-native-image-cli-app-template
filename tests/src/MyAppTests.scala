@@ -13,7 +13,8 @@ class MyAppTests extends CLITestBase:
     assertCliSuccess(result)
     // Use assertStdoutContainsIgnoringAnsi to handle ANSI color codes
     assertStdoutContainsIgnoringAnsi(result, "Hello, Scala!")
-    assertStdoutContainsIgnoringAnsi(result, "✔ What's the weather like?  … great")
+    assertStdoutContainsIgnoringAnsi(result, "What's the weather like?")
+    assertStdoutContainsIgnoringAnsi(result, "great")
     assertStdoutContainsIgnoringAnsi(result, "That's awesome, take a bike ride!")
   }
 

@@ -710,10 +710,30 @@ abstract class CLITestBase extends FunSuite:
 
   /** Strips ANSI escape codes from a string. ANSI codes are sequences like \u001b[32m (green), \u001b[36m (cyan),
     * \u001b[0m (reset), etc.
+    *
+    * On Windows, the escape character may be corrupted to '?' due to encoding issues,
+    * so we handle both cases.
     */
   protected def stripAnsiCodes(text: String): String =
-    // Remove ANSI escape sequences: \u001b[...m
-    text.replaceAll("\u001b\\[[0-9;]*m", "")
+    text
+      // Remove standard ANSI escape sequences: \u001b[...m or ESC[...m
+      .replaceAll("\u001b\\[[0-9;]*m", "")
+      // Remove corrupted ANSI sequences on Windows: ?[...m
+      .replaceAll("\\?\\[[0-9;]*m", "")
+      // Remove other ANSI control sequences: \u001b[...letter
+      .replaceAll("\u001b\\[[0-9;]*[A-Za-z]", "")
+      // Remove corrupted variants: ?[...letter
+      .replaceAll("\\?\\[[0-9;]*[A-Za-z]", "")
+      // Remove CSI sequences without parameters: \u001b[letter or ?[letter
+      .replaceAll("\u001b\\[[A-Za-z]", "")
+      .replaceAll("\\?\\[[A-Za-z]", "")
+      // Remove isolated escape characters and question marks that look like corrupted escapes
+      .replaceAll("(?:^|[^\\[])\\?(?=\\[)", "")
+      // Remove cursor visibility sequences: ?[?25l, ?[?25h, etc
+      .replaceAll("\\?\\[\\?[0-9;]*[A-Za-z]", "")
+      .replaceAll("\u001b\\[\\?[0-9;]*[A-Za-z]", "")
+      // Clean up sequences like "25l" and "25h" that appear without proper prefix
+      .replaceAll("25[lh]", "")
 
   /** Asserts that stdout contains the given substring, ignoring ANSI color codes.
     *
