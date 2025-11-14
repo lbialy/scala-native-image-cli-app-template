@@ -479,10 +479,16 @@ abstract class CLITestBase extends FunSuite:
     * @return
     *   CLIResult containing stdout, stderr, and exit code
     */
-  protected def runCliWithStdin(stdin: String = "")(args: String*): CLIResult =
+  protected def runCliWithStdin(stdin: String = "", timeoutMs: Long = 30000)(args: String*): CLIResult =
+    val debugMode = sys.env.get("CLI_TEST_DEBUG").exists(v => v.toLowerCase == "true" || v == "1")
     val binary = cliBinaryPath
     val cmd = buildCommand(binary, args)
     val proc = os.proc(cmd)
+
+    if debugMode then
+      println(s"[runCliWithStdin] Running command: ${cmd.mkString(" ")}")
+      println(s"[runCliWithStdin] Stdin: ${stdin.replace("\n", "\\n")}")
+      println(s"[runCliWithStdin] Timeout: ${timeoutMs}ms")
 
     if stdin.nonEmpty then
       // Use spawn for stdin input
@@ -491,6 +497,9 @@ abstract class CLITestBase extends FunSuite:
         stdout = os.Pipe,
         stderr = os.Pipe
       )
+
+      if debugMode then
+        println(s"[runCliWithStdin] Process spawned, PID: ${subprocess.pid}")
 
       // Write stdin to the process
       val stdinBytes = stdin.getBytes
@@ -501,17 +510,65 @@ abstract class CLITestBase extends FunSuite:
       catch
         case _: java.io.IOException => () // stdin already closed, ignore
 
-        // Read stdout and stderr
-      val stdoutBytes = subprocess.stdout.readAllBytes()
-      val stderrBytes = subprocess.stderr.readAllBytes()
+      // Read stdout and stderr in separate threads to avoid blocking
+      val stdoutBuffer = SyncBuffer()
+      val stderrBuffer = SyncBuffer()
 
-      // Wait for process to complete and get exit code
-      subprocess.waitFor()
-      val exitCode = subprocess.exitCode()
+      val stdoutThread = new Thread:
+        override def run(): Unit =
+          try
+            val reader = subprocess.stdout
+            val buffer = new Array[Byte](4096)
+            var bytesRead = reader.read(buffer)
+            while bytesRead != -1 do
+              if bytesRead > 0 then stdoutBuffer.append(String(buffer, 0, bytesRead))
+              bytesRead = reader.read(buffer)
+          catch case _: java.io.IOException => ()
+
+      val stderrThread = new Thread:
+        override def run(): Unit =
+          try
+            val reader = subprocess.stderr
+            val buffer = new Array[Byte](4096)
+            var bytesRead = reader.read(buffer)
+            while bytesRead != -1 do
+              if bytesRead > 0 then stderrBuffer.append(String(buffer, 0, bytesRead))
+              bytesRead = reader.read(buffer)
+          catch case _: java.io.IOException => ()
+
+      stdoutThread.start()
+      stderrThread.start()
+
+      // Wait for process to complete with timeout
+      val startTime = System.currentTimeMillis()
+      while subprocess.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do
+        Thread.sleep(100)
+
+      val exitCode = if subprocess.isAlive() then
+        // Process didn't finish in time, kill it
+        if debugMode then
+          println(s"[runCliWithStdin] Process timeout after ${timeoutMs}ms, killing process")
+          println(s"[runCliWithStdin] Stdout so far: ${stdoutBuffer.current}")
+          println(s"[runCliWithStdin] Stderr so far: ${stderrBuffer.current}")
+        subprocess.destroy()
+        Thread.sleep(1000)
+        if subprocess.isAlive() then subprocess.destroyForcibly()
+        -1
+      else
+        subprocess.exitCode()
+
+      // Wait for reader threads to finish
+      stdoutThread.join(2000)
+      stderrThread.join(2000)
+
+      if debugMode then
+        println(s"[runCliWithStdin] Process finished with exit code: $exitCode")
+        println(s"[runCliWithStdin] Final stdout (${stdoutBuffer.current.length} chars): ${stdoutBuffer.current}")
+        println(s"[runCliWithStdin] Final stderr (${stderrBuffer.current.length} chars): ${stderrBuffer.current}")
 
       CLIResult(
-        stdout = String(stdoutBytes),
-        stderr = String(stderrBytes),
+        stdout = stdoutBuffer.current,
+        stderr = stderrBuffer.current,
         exitCode = exitCode
       )
     else

@@ -84,14 +84,14 @@ jobs:
       - name: Run agent-e2e-test (generate metadata from e2e tests)
         run: just agent-e2e-test
         env:
-          CLI_TEST_DEBUG: ${{ matrix.os == 'windows-latest' && 'true' || 'false' }}
-          CLI_TEST_TIMEOUT_MS: ${{ matrix.os == 'windows-latest' && '2000' || '5000' }}
+          CLI_TEST_DEBUG: ${{ runner.os == 'Windows' && 'true' || 'false' }}
+          CLI_TEST_TIMEOUT_MS: ${{ runner.os == 'Windows' && '2000' || '5000' }}
 
       - name: Run e2e-test (build native & test)
         run: just e2e-test
         env:
-          CLI_TEST_DEBUG: ${{ matrix.os == 'windows-latest' && 'true' || 'false' }}
-          CLI_TEST_TIMEOUT_MS: ${{ matrix.os == 'windows-latest' && '2000' || '5000' }}
+          CLI_TEST_DEBUG: ${{ runner.os == 'Windows' && 'true' || 'false' }}
+          CLI_TEST_TIMEOUT_MS: ${{ runner.os == 'Windows' && '2000' || '5000' }}
 
       - name: Generate checksums
         run: just checksums ${{ matrix.os_tag }} ${{ matrix.arch }}
