@@ -96,6 +96,16 @@ jobs:
       - name: Generate checksums
         run: just checksums ${{ matrix.os_tag }} ${{ matrix.arch }}
 
+      - name: Upload test debug binaries (Windows only)
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-debug-binaries-${{ matrix.os_tag }}-${{ matrix.arch }}
+          path: |
+            test-*.bin
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

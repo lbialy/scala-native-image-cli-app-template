@@ -65,19 +65,27 @@ abstract class CLITestBase extends FunSuite:
         println(s"[TEST END] $name (${duration}ms)")
     }(loc)
 
-  /** Synchronized buffer for thread-safe string accumulation.
+  /** Synchronized buffer for thread-safe string accumulation with optional binary capture.
     */
   private class SyncBuffer:
     private val buffer = StringBuilder()
+    private val binaryBuffer = scala.collection.mutable.ArrayBuffer[Byte]()
 
     def append(str: String): Unit = synchronized:
       buffer.append(str)
 
+    def appendBytes(bytes: Array[Byte], offset: Int, length: Int): Unit = synchronized:
+      binaryBuffer.appendAll(bytes.slice(offset, offset + length))
+
     def current: String = synchronized:
       buffer.toString
 
+    def currentBytes: Array[Byte] = synchronized:
+      binaryBuffer.toArray
+
     def clear(): Unit = synchronized:
       buffer.clear()
+      binaryBuffer.clear()
 
   /** Result of a CLI execution containing stdout, stderr, and exit code.
     */
@@ -119,7 +127,9 @@ abstract class CLITestBase extends FunSuite:
           val buffer = new Array[Byte](8192)
           var bytesRead = reader.read(buffer)
           while bytesRead != -1 do
-            if bytesRead > 0 then stdoutBuffer.append(String(buffer, 0, bytesRead))
+            if bytesRead > 0 then
+              stdoutBuffer.appendBytes(buffer, 0, bytesRead)
+              stdoutBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
             bytesRead = reader.read(buffer)
         catch case _: java.io.IOException => () // Stream closed, normal termination
 
@@ -130,7 +140,9 @@ abstract class CLITestBase extends FunSuite:
           val buffer = new Array[Byte](8192)
           var bytesRead = reader.read(buffer)
           while bytesRead != -1 do
-            if bytesRead > 0 then stderrBuffer.append(String(buffer, 0, bytesRead))
+            if bytesRead > 0 then
+              stderrBuffer.appendBytes(buffer, 0, bytesRead)
+              stderrBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
             bytesRead = reader.read(buffer)
         catch case _: java.io.IOException => () // Stream closed, normal termination
 
@@ -370,6 +382,17 @@ abstract class CLITestBase extends FunSuite:
       if debugMode then
         printDebugSnapshot(s"Session closed with exit code: $exitCode")
 
+        // Write binary output to files for debugging
+        try
+          val outFile = os.pwd / "test-interactive-stdout.bin"
+          val errFile = os.pwd / "test-interactive-stderr.bin"
+          os.write.over(outFile, stdoutBuffer.currentBytes)
+          os.write.over(errFile, stderrBuffer.currentBytes)
+          println(s"[InteractiveCLISession] Binary output written to: ${outFile} and ${errFile}")
+        catch
+          case e: Exception =>
+            println(s"[InteractiveCLISession] Failed to write binary files: ${e.getMessage}")
+
       CLIResult(
         stdout = stdoutBuffer.current,
         stderr = stderrBuffer.current,
@@ -533,7 +556,9 @@ abstract class CLITestBase extends FunSuite:
             val buffer = new Array[Byte](4096)
             var bytesRead = reader.read(buffer)
             while bytesRead != -1 do
-              if bytesRead > 0 then stdoutBuffer.append(String(buffer, 0, bytesRead))
+              if bytesRead > 0 then
+                stdoutBuffer.appendBytes(buffer, 0, bytesRead)
+                stdoutBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
               bytesRead = reader.read(buffer)
           catch case _: java.io.IOException => ()
 
@@ -544,7 +569,9 @@ abstract class CLITestBase extends FunSuite:
             val buffer = new Array[Byte](4096)
             var bytesRead = reader.read(buffer)
             while bytesRead != -1 do
-              if bytesRead > 0 then stderrBuffer.append(String(buffer, 0, bytesRead))
+              if bytesRead > 0 then
+                stderrBuffer.appendBytes(buffer, 0, bytesRead)
+                stderrBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
               bytesRead = reader.read(buffer)
           catch case _: java.io.IOException => ()
 
@@ -597,6 +624,24 @@ abstract class CLITestBase extends FunSuite:
         println(s"[runCliWithStdin] Process finished with exit code: $exitCode")
         println(s"[runCliWithStdin] Final stdout (${stdoutBuffer.current.length} chars): ${stdoutBuffer.current}")
         println(s"[runCliWithStdin] Final stderr (${stderrBuffer.current.length} chars): ${stderrBuffer.current}")
+
+        // Write binary output to files for debugging
+        try
+          val outFile = os.pwd / "test-stdout.bin"
+          val errFile = os.pwd / "test-stderr.bin"
+          val outBytes = stdoutBuffer.currentBytes
+          val errBytes = stderrBuffer.currentBytes
+          os.write.over(outFile, outBytes)
+          os.write.over(errFile, errBytes)
+          println(s"[runCliWithStdin] Binary output written to: ${outFile} and ${errFile}")
+
+          // Print first 256 bytes as hex for immediate debugging
+          if outBytes.nonEmpty then
+            val hexDump = outBytes.take(256).map(b => f"${b & 0xff}%02x").mkString(" ")
+            println(s"[runCliWithStdin] First ${math.min(256, outBytes.length)} bytes (hex):\n$hexDump")
+        catch
+          case e: Exception =>
+            println(s"[runCliWithStdin] Failed to write binary files: ${e.getMessage}")
 
       CLIResult(
         stdout = stdoutBuffer.current,
@@ -712,28 +757,36 @@ abstract class CLITestBase extends FunSuite:
     * \u001b[0m (reset), etc.
     *
     * On Windows, the escape character may be corrupted to '?' due to encoding issues,
-    * so we handle both cases.
+    * so we use a comprehensive approach to strip all control sequences.
     */
   protected def stripAnsiCodes(text: String): String =
-    text
-      // Remove standard ANSI escape sequences: \u001b[...m or ESC[...m
-      .replaceAll("\u001b\\[[0-9;]*m", "")
-      // Remove corrupted ANSI sequences on Windows: ?[...m
-      .replaceAll("\\?\\[[0-9;]*m", "")
-      // Remove other ANSI control sequences: \u001b[...letter
-      .replaceAll("\u001b\\[[0-9;]*[A-Za-z]", "")
-      // Remove corrupted variants: ?[...letter
-      .replaceAll("\\?\\[[0-9;]*[A-Za-z]", "")
-      // Remove CSI sequences without parameters: \u001b[letter or ?[letter
-      .replaceAll("\u001b\\[[A-Za-z]", "")
-      .replaceAll("\\?\\[[A-Za-z]", "")
-      // Remove isolated escape characters and question marks that look like corrupted escapes
-      .replaceAll("(?:^|[^\\[])\\?(?=\\[)", "")
-      // Remove cursor visibility sequences: ?[?25l, ?[?25h, etc
-      .replaceAll("\\?\\[\\?[0-9;]*[A-Za-z]", "")
-      .replaceAll("\u001b\\[\\?[0-9;]*[A-Za-z]", "")
-      // Clean up sequences like "25l" and "25h" that appear without proper prefix
-      .replaceAll("25[lh]", "")
+    var result = text
+
+    // First pass: Remove all standard ANSI escape sequences
+    result = result.replaceAll("\u001b\\[[0-9;?]*[A-Za-z]", "")
+    result = result.replaceAll("\u001b\\[[0-9;?]*m", "")
+
+    // Second pass: Remove Windows-corrupted sequences where \u001b becomes ?
+    // Pattern: ?[...m or ?[...letter where ... can be numbers, semicolons, or ?
+    result = result.replaceAll("\\?\\[[0-9;?]*[A-Za-z]", "")
+    result = result.replaceAll("\\?\\[[0-9;?]*m", "")
+
+    // Third pass: Remove partial sequences that got mangled
+    // Pattern like "25l", "25h", "0G", "2K", "1B", "4A", etc - cursor movement codes
+    result = result.replaceAll("\\d+[lhGKABCDHfJms]", "")
+
+    // Fourth pass: Clean up remaining question mark brackets
+    result = result.replaceAll("\\?\\[\\?", "")
+    result = result.replaceAll("\\?\\[", "")
+
+    // Fifth pass: Remove any remaining isolated control characters
+    // Unicode control characters (0x00-0x1F except newline, tab, carriage return)
+    result = result.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "")
+
+    // Sixth pass: Clean up the special Unicode characters that might be corrupted
+    result = result.replace("�", "") // Replace Unicode replacement character
+
+    result
 
   /** Asserts that stdout contains the given substring, ignoring ANSI color codes.
     *
