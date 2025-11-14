@@ -58,12 +58,11 @@ abstract class CLITestBase extends FunSuite:
     super.test(name) {
       println(s"[TEST START] $name")
       val startTime = System.currentTimeMillis()
-      try
-        body
+      try body
       finally
         val duration = System.currentTimeMillis() - startTime
         println(s"[TEST END] $name (${duration}ms)")
-    }(loc)
+    }(using loc)
 
   /** Synchronized buffer for thread-safe string accumulation with optional binary capture.
     */
@@ -165,8 +164,7 @@ abstract class CLITestBase extends FunSuite:
       val stderr = stderrBuffer.current
       println(s"\n========== DEBUG: $label ==========")
       println(s"STDOUT (${stdout.length} chars):\n$stdout")
-      if stderr.nonEmpty then
-        println(s"STDERR (${stderr.length} chars):\n$stderr")
+      if stderr.nonEmpty then println(s"STDERR (${stderr.length} chars):\n$stderr")
       println(s"Process alive: ${process.isAlive()}")
       println("=" * 50 + "\n")
 
@@ -284,30 +282,26 @@ abstract class CLITestBase extends FunSuite:
       */
     def readUntil(pattern: String, timeoutMs: Int = -1, ignoreAnsi: Boolean = true): String =
       val actualTimeout = if timeoutMs == -1 then defaultTimeoutMs else timeoutMs
-      if debugMode then
-        printDebugSnapshot(s"Before readUntil:\n'$pattern' (timeout: ${actualTimeout}ms)")
+      if debugMode then printDebugSnapshot(s"Before readUntil:\n'$pattern' (timeout: ${actualTimeout}ms)")
       boundary[String]:
         val startTime = System.currentTimeMillis()
         while System.currentTimeMillis() - startTime < actualTimeout do
           val currentOutput = stdoutBuffer.current
           val textToMatch = if ignoreAnsi then stripAnsiCodes(currentOutput) else currentOutput
           if textToMatch.contains(pattern) then
-            if debugMode then
-              printDebugSnapshot(s"After readUntil found:\n'$pattern'")
+            if debugMode then printDebugSnapshot(s"After readUntil found:\n'$pattern'")
             break(currentOutput)
 
           // Check if process finished
           if !process.isAlive() then
             processFinished = true
             stdoutThread.join(1000) // Wait for reader thread to finish
-            if debugMode then
-              printDebugSnapshot(s"Process finished while waiting for:\n'$pattern'")
+            if debugMode then printDebugSnapshot(s"Process finished while waiting for:\n'$pattern'")
             break(stdoutBuffer.current)
 
           Thread.sleep(50) // Small delay to avoid busy-waiting
         end while
-        if debugMode then
-          printDebugSnapshot(s"Timeout waiting for:\n'$pattern'")
+        if debugMode then printDebugSnapshot(s"Timeout waiting for:\n'$pattern'")
         throw RuntimeException(
           s"Timeout waiting for pattern '$pattern' in stdout. Current output:\n${stdoutBuffer.current}"
         )
@@ -351,11 +345,11 @@ abstract class CLITestBase extends FunSuite:
 
     /** Closes stdin and waits for the process to finish, returning the final result.
       *
-      * @param waitTimeoutMs Maximum time to wait for process to finish (default: 30000ms / 30 seconds)
+      * @param waitTimeoutMs
+      *   Maximum time to wait for process to finish (default: 30000ms / 30 seconds)
       */
     def close(waitTimeoutMs: Long = 30000): CLIResult =
-      if debugMode then
-        printDebugSnapshot(s"Closing session (timeout: ${waitTimeoutMs}ms)")
+      if debugMode then printDebugSnapshot(s"Closing session (timeout: ${waitTimeoutMs}ms)")
 
       if !stdinClosed then
         process.getOutputStream().close()
@@ -363,14 +357,12 @@ abstract class CLITestBase extends FunSuite:
 
       // Wait for process with timeout
       val startTime = System.currentTimeMillis()
-      while process.isAlive() && (System.currentTimeMillis() - startTime < waitTimeoutMs) do
-        Thread.sleep(100)
+      while process.isAlive() && (System.currentTimeMillis() - startTime < waitTimeoutMs) do Thread.sleep(100)
 
       if process.isAlive() then
         process.destroy()
         Thread.sleep(1000)
-        if process.isAlive() then
-          process.destroyForcibly()
+        if process.isAlive() then process.destroyForcibly()
 
       val exitCode = if process.isAlive() then -1 else process.exitValue()
       processFinished = true
@@ -399,29 +391,42 @@ abstract class CLITestBase extends FunSuite:
         exitCode = exitCode
       )
 
-  /** Gets the path to the CLI binary. Reads from CLI_BINARY_PATH environment variable, or defaults to "dist/myapp".
+  /** Gets the path to the CLI binary. Reads from CLI_BINARY_PATH environment variable, or defaults to "dist/myapp". On
+    * Windows, automatically tries .exe extension if the path doesn't exist.
     */
   protected def cliBinaryPath: Path =
     val envPath = sys.env.get("CLI_BINARY_PATH")
+    val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
+
     envPath match
       case Some(path) =>
         val p =
           if path.startsWith("/") then Path(path)
           else os.pwd / RelPath(path)
+
         if os.isFile(p) then p
+        else if isWindows && os.isFile(Path(p.toString + ".exe")) then
+          // On Windows, try with .exe extension
+          Path(p.toString + ".exe")
         else
           throw IllegalArgumentException(
-            s"CLI_BINARY_PATH environment variable points to non-existent file: $path"
+            s"CLI_BINARY_PATH environment variable points to non-existent file: $path${
+                if isWindows then " (also tried .exe)" else ""
+              }"
           )
       case None =>
         // Default to dist/myapp relative to project root
         // Try to find project root by looking for Justfile or app/project.scala
         val projectRoot = findProjectRoot()
         val defaultPath = projectRoot / "dist" / "myapp"
+
         if os.isFile(defaultPath) then defaultPath
+        else if isWindows && os.isFile(Path(defaultPath.toString + ".exe")) then
+          // On Windows, try with .exe extension
+          Path(defaultPath.toString + ".exe")
         else
           throw IllegalArgumentException(
-            s"CLI binary not found at default path: $defaultPath. " +
+            s"CLI binary not found at default path: $defaultPath${if isWindows then " (also tried .exe)" else ""}. " +
               s"Please set CLI_BINARY_PATH environment variable or build the binary first."
           )
     end match
@@ -535,28 +540,28 @@ abstract class CLITestBase extends FunSuite:
       if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
 
       // Use PTY for stdin input to ensure proper terminal handling on all platforms
-      val process = try
-        val builder = new PtyProcessBuilder()
-          .setCommand(cmd.toArray)
-          .setEnvironment(env)
-          .setDirectory(os.pwd.toString)
+      val process =
+        try
+          val builder = new PtyProcessBuilder()
+            .setCommand(cmd.toArray)
+            .setEnvironment(env)
+            .setDirectory(os.pwd.toString)
 
-        // Enable Windows-specific ANSI support
-        val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
-        if isWindows then
-          builder.setWindowsAnsiColorEnabled(true)
-          builder.setUseWinConPty(true)
+          // Enable Windows-specific ANSI support
+          val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
+          if isWindows then
+            builder.setWindowsAnsiColorEnabled(true)
+            builder.setUseWinConPty(true)
 
-        builder.start()
-      catch
-        case e: Exception =>
-          if debugMode then
-            println(s"[runCliWithStdin] Failed to start PTY process: ${e.getMessage}")
-            e.printStackTrace()
-          throw e
+          builder.start()
+        catch
+          case e: Exception =>
+            if debugMode then
+              println(s"[runCliWithStdin] Failed to start PTY process: ${e.getMessage}")
+              e.printStackTrace()
+            throw e
 
-      if debugMode then
-        println(s"[runCliWithStdin] PTY process spawned")
+      if debugMode then println(s"[runCliWithStdin] PTY process spawned")
 
       // Read stdout and stderr in separate threads to avoid blocking
       // Start these BEFORE writing stdin to avoid race conditions
@@ -601,21 +606,16 @@ abstract class CLITestBase extends FunSuite:
       try
         processStdin.write(stdinBytes)
         processStdin.flush()
-        if debugMode then
-          println(s"[runCliWithStdin] Stdin written, keeping stream open until process completes")
-      catch
-        case _: java.io.IOException => () // stdin already closed, ignore
+        if debugMode then println(s"[runCliWithStdin] Stdin written, keeping stream open until process completes")
+      catch case _: java.io.IOException => () // stdin already closed, ignore
 
       // Wait for process to complete with timeout
       val startTime = System.currentTimeMillis()
-      while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do
-        Thread.sleep(100)
+      while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do Thread.sleep(100)
 
       // Now close stdin after process completes or times out
-      try
-        processStdin.close()
-      catch
-        case _: java.io.IOException => ()
+      try processStdin.close()
+      catch case _: java.io.IOException => ()
 
       val exitCode = if process.isAlive() then
         // Process didn't finish in time, kill it
@@ -627,8 +627,7 @@ abstract class CLITestBase extends FunSuite:
         Thread.sleep(1000)
         if process.isAlive() then process.destroyForcibly()
         -1
-      else
-        process.exitValue()
+      else process.exitValue()
 
       // Wait for reader threads to finish
       stdoutThread.join(2000)
@@ -770,8 +769,8 @@ abstract class CLITestBase extends FunSuite:
   /** Strips ANSI escape codes from a string. ANSI codes are sequences like \u001b[32m (green), \u001b[36m (cyan),
     * \u001b[0m (reset), etc.
     *
-    * On Windows PTY without proper ANSI support, the escape character (0x1B) can be replaced with
-    * UTF-8 sequence e2 86 90 (leftwards arrow ←, U+2190) at the byte level.
+    * On Windows PTY without proper ANSI support, the escape character (0x1B) can be replaced with UTF-8 sequence e2 86
+    * 90 (leftwards arrow ←, U+2190) at the byte level.
     */
   protected def stripAnsiCodes(text: String): String =
     var result = text
