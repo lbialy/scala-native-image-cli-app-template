@@ -3,7 +3,9 @@ import munit.FunSuite
 class MyAppTests extends CLITestBase:
 
   test("hello command with --who Scala and stdin input selects great") {
-    val result = runCliWithStdin(stdin = "\n")(
+    // Windows may need \r\n for proper line ending handling
+    val stdin = if System.getProperty("os.name").toLowerCase.contains("win") then "\r\n" else "\n"
+    val result = runCliWithStdin(stdin = stdin)(
       "hello",
       "--who",
       "Scala"
