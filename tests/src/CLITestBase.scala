@@ -499,7 +499,7 @@ abstract class CLITestBase extends FunSuite:
       )
 
       if debugMode then
-        println(s"[runCliWithStdin] Process spawned, PID: ${subprocess.pid}")
+        println(s"[runCliWithStdin] Process spawned")
 
       // Write stdin to the process
       val stdinBytes = stdin.getBytes
