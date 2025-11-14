@@ -116,15 +116,26 @@ agent-e2e-test: build
     //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
-    println("Running e2e tests with native-image-agent for {{BINARY_NAME}}.jar ...")
-    os.proc(
-        raw"{{SCALA_CLI_BINARY_PATH}}", "test", "tests", "--jvm", "{{GRAALVM_ID}}"
-    ).call(stdout = os.Inherit, stderr = os.Inherit, env = Map(
+    val debugMode = sys.env.get("CLI_TEST_DEBUG").getOrElse("false")
+    val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").getOrElse("5000")
+
+    println(s"Running e2e tests with native-image-agent for {{BINARY_NAME}}.jar ...")
+    println(s"CLI_TEST_DEBUG=$debugMode, CLI_TEST_TIMEOUT_MS=$timeoutMs")
+
+    val envVars = Map(
         "CLI_BINARY_PATH" -> "dist/{{BINARY_NAME}}.jar",
         "NI_AGENT" -> "true",
         "NI_AGENT_MODE" -> "{{GRAALVM_AGENT_MODE}}",
-        "JAVA_HOME" -> sys.props("java.home")
-    ))
+        "JAVA_HOME" -> sys.props("java.home"),
+        "CLI_TEST_DEBUG" -> debugMode,
+        "CLI_TEST_TIMEOUT_MS" -> timeoutMs
+    )
+
+    println(s"Environment variables: $envVars")
+
+    os.proc(
+        raw"{{SCALA_CLI_BINARY_PATH}}", "test", "tests", "--jvm", "{{GRAALVM_ID}}"
+    ).call(stdout = os.Inherit, stderr = os.Inherit, env = envVars)
 
 # Run e2e tests against the native binary to verify correctness of the final artifact
 [extension(".sc")]
@@ -134,12 +145,23 @@ e2e-test: build-native
     //> using scala 3.7.3
     //> using jvm {{GRAALVM_ID}}
 
-    println("Running e2e tests against native binary...")
+    val debugMode = sys.env.get("CLI_TEST_DEBUG").getOrElse("false")
+    val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").getOrElse("5000")
+
+    println(s"Running e2e tests against native binary...")
+    println(s"CLI_TEST_DEBUG=$debugMode, CLI_TEST_TIMEOUT_MS=$timeoutMs")
+
+    val envVars = Map(
+        "CLI_BINARY_PATH" -> s"dist/{{BINARY_NAME}}",
+        "CLI_TEST_DEBUG" -> debugMode,
+        "CLI_TEST_TIMEOUT_MS" -> timeoutMs
+    )
+
+    println(s"Environment variables: $envVars")
+
     os.proc(
         raw"{{SCALA_CLI_BINARY_PATH}}", "test", "tests"
-    ).call(stdout = os.Inherit, stderr = os.Inherit, env = Map(
-        "CLI_BINARY_PATH" -> s"dist/{{BINARY_NAME}}"
-    ))
+    ).call(stdout = os.Inherit, stderr = os.Inherit, env = envVars)
 
 # Build native image
 [extension(".sc")]

@@ -35,6 +35,33 @@ import os.RelPath
   */
 abstract class CLITestBase extends FunSuite:
 
+  // Log test configuration at startup
+  override def beforeAll(): Unit =
+    super.beforeAll()
+    val debugMode = sys.env.get("CLI_TEST_DEBUG").getOrElse("not set")
+    val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").getOrElse("not set")
+    val binaryPath = sys.env.get("CLI_BINARY_PATH").getOrElse("not set")
+    val niAgent = sys.env.get("NI_AGENT").getOrElse("not set")
+    println(s"[CLITestBase] Test configuration:")
+    println(s"  CLI_TEST_DEBUG=$debugMode")
+    println(s"  CLI_TEST_TIMEOUT_MS=$timeoutMs")
+    println(s"  CLI_BINARY_PATH=$binaryPath")
+    println(s"  NI_AGENT=$niAgent")
+    println(s"  OS: ${System.getProperty("os.name")}")
+    println(s"  Java: ${System.getProperty("java.version")}")
+
+  // Override test to add logging
+  override def test(name: String)(body: => Any)(implicit loc: munit.Location): Unit =
+    super.test(name) {
+      println(s"[TEST START] $name")
+      val startTime = System.currentTimeMillis()
+      try
+        body
+      finally
+        val duration = System.currentTimeMillis() - startTime
+        println(s"[TEST END] $name (${duration}ms)")
+    }(loc)
+
   /** Synchronized buffer for thread-safe string accumulation.
     */
   private class SyncBuffer:
