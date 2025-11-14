@@ -485,11 +485,18 @@ abstract class CLITestBase extends FunSuite:
     if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
 
     // Create PTY process for proper terminal interaction
-    val process = new PtyProcessBuilder()
+    val builder = new PtyProcessBuilder()
       .setCommand(cmd.toArray)
       .setEnvironment(env)
       .setDirectory(os.pwd.toString)
-      .start()
+
+    // Enable Windows-specific ANSI support
+    val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
+    if isWindows then
+      builder.setWindowsAnsiColorEnabled(true)
+      builder.setUseWinConPty(true)
+
+    val process = builder.start()
 
     InteractiveCLISession(process, args)
 
@@ -529,11 +536,18 @@ abstract class CLITestBase extends FunSuite:
 
       // Use PTY for stdin input to ensure proper terminal handling on all platforms
       val process = try
-        new PtyProcessBuilder()
+        val builder = new PtyProcessBuilder()
           .setCommand(cmd.toArray)
           .setEnvironment(env)
           .setDirectory(os.pwd.toString)
-          .start()
+
+        // Enable Windows-specific ANSI support
+        val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
+        if isWindows then
+          builder.setWindowsAnsiColorEnabled(true)
+          builder.setUseWinConPty(true)
+
+        builder.start()
       catch
         case e: Exception =>
           if debugMode then
@@ -756,35 +770,40 @@ abstract class CLITestBase extends FunSuite:
   /** Strips ANSI escape codes from a string. ANSI codes are sequences like \u001b[32m (green), \u001b[36m (cyan),
     * \u001b[0m (reset), etc.
     *
-    * On Windows, the escape character may be corrupted to '?' due to encoding issues,
-    * so we use a comprehensive approach to strip all control sequences.
+    * On Windows PTY without proper ANSI support, the escape character (0x1B) can be replaced with
+    * UTF-8 sequence e2 86 90 (leftwards arrow ←, U+2190) at the byte level.
     */
   protected def stripAnsiCodes(text: String): String =
     var result = text
 
-    // First pass: Remove all standard ANSI escape sequences
+    // First pass: Remove standard ANSI escape sequences with ESC (0x1B)
     result = result.replaceAll("\u001b\\[[0-9;?]*[A-Za-z]", "")
     result = result.replaceAll("\u001b\\[[0-9;?]*m", "")
 
-    // Second pass: Remove Windows-corrupted sequences where \u001b becomes ?
-    // Pattern: ?[...m or ?[...letter where ... can be numbers, semicolons, or ?
+    // Second pass: Remove Windows PTY corrupted sequences where ESC (0x1B) becomes U+2190 (←)
+    // Hex dump shows: 1b 5b 33 32 6d becomes e2 86 90 5b 33 32 6d (← [ 3 2 m)
+    result = result.replaceAll("←\\[[0-9;?]*[A-Za-z]", "")
+    result = result.replaceAll("←\\[[0-9;?]*m", "")
+
+    // Third pass: Remove Windows-corrupted sequences where \u001b becomes ?
     result = result.replaceAll("\\?\\[[0-9;?]*[A-Za-z]", "")
     result = result.replaceAll("\\?\\[[0-9;?]*m", "")
 
-    // Third pass: Remove partial sequences that got mangled
+    // Fourth pass: Remove partial sequences that got mangled
     // Pattern like "25l", "25h", "0G", "2K", "1B", "4A", etc - cursor movement codes
     result = result.replaceAll("\\d+[lhGKABCDHfJms]", "")
 
-    // Fourth pass: Clean up remaining question mark brackets
+    // Fifth pass: Clean up remaining artifacts
     result = result.replaceAll("\\?\\[\\?", "")
     result = result.replaceAll("\\?\\[", "")
+    result = result.replace("←", "") // Remove standalone leftwards arrows
 
-    // Fifth pass: Remove any remaining isolated control characters
+    // Sixth pass: Remove any remaining isolated control characters
     // Unicode control characters (0x00-0x1F except newline, tab, carriage return)
     result = result.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "")
 
-    // Sixth pass: Clean up the special Unicode characters that might be corrupted
-    result = result.replace("�", "") // Replace Unicode replacement character
+    // Seventh pass: Clean up special Unicode characters
+    result = result.replace("�", "") // Unicode replacement character
 
     result
 
