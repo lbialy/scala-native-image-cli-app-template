@@ -87,12 +87,15 @@ jobs:
           CLI_TEST_DEBUG: ${{ runner.os == 'Windows' && 'true' || 'false' }}
           CLI_TEST_TIMEOUT_MS: ${{ runner.os == 'Windows' && '2000' || '5000' }}
 
+      - name: Just print a file tree
+        run: tree app
+
       - name: Upload reachability metadata (Windows only)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: reachability-metadata-${{ matrix.os_tag }}-${{ matrix.arch }}.json
-          path: app/resources/META-INF/native-image/reachability-metadata.json
+          path: app/resources/META-INF/native-image/my.org/myapp/reachability-metadata.json
           retention-days: 7
 
       - name: Run e2e-test (build native & test)
