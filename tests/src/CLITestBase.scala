@@ -454,9 +454,10 @@ abstract class CLITestBase extends FunSuite:
   private def buildCommand(binary: Path, args: Seq[String]): Seq[String] =
     val useAgent = sys.env.get("NI_AGENT").exists(v => v.toLowerCase == "true" || v == "1")
     val niAgentMode = sys.env.get("NI_AGENT_MODE").getOrElse("merge")
+    val niMetadataPath = sys.env.get("NI_METADATA_PATH").getOrElse("app/resources/META-INF/native-image/my.org/myapp")
     if useAgent then
       val projectRoot = findProjectRoot()
-      val configOutputDir = projectRoot / "app" / "resources" / "META-INF" / "native-image"
+      val configOutputDir = projectRoot / os.SubPath(niMetadataPath)
       Seq(
         "java",
         s"-agentlib:native-image-agent=config-$niAgentMode-dir=$configOutputDir",
@@ -607,9 +608,10 @@ abstract class CLITestBase extends FunSuite:
         processStdin.write(stdinBytes)
         processStdin.flush()
         if debugMode then println(s"[runCliWithStdin] Stdin written, keeping stream open until process completes")
-      catch case _: java.io.IOException => () // stdin already closed, ignore
+      catch
+        case _: java.io.IOException => () // stdin already closed, ignore
 
-      // Wait for process to complete with timeout
+        // Wait for process to complete with timeout
       val startTime = System.currentTimeMillis()
       while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do Thread.sleep(100)
 

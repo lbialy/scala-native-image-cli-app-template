@@ -127,6 +127,7 @@ agent-e2e-test: build
         "CLI_BINARY_PATH" -> "dist/{{BINARY_NAME}}.jar",
         "NI_AGENT" -> "true",
         "NI_AGENT_MODE" -> "{{GRAALVM_AGENT_MODE}}",
+        "NI_METADATA_PATH" -> "{{NI_METADATA}}",
         "JAVA_HOME" -> sys.props("java.home"),
         "CLI_TEST_DEBUG" -> debugMode,
         "CLI_TEST_TIMEOUT_MS" -> timeoutMs
