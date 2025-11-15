@@ -144,6 +144,7 @@ Implement the continuous integration workflow:
 - [X] Set up matrix strategy for core 4 targets:
   - linux/amd64, linux/arm64, macos/arm64, windows/amd64, macos/amd64, windows/arm64
 - [X] Implement caching for Coursier and scala-cli
+- [X] Implement end-to-end cross-platform testing harness 
 - [ ] Add timeout configuration (60 minutes per job)
 - [ ] Pin all actions by commit SHA
 - [ ] Configure permissions (least privilege)

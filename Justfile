@@ -7,8 +7,6 @@ NI_METADATA := "app/resources/META-INF/native-image/my.org/myapp"
 AGENT_OUT := ".out/native-image-agent"
 GRAALVM_ID := "graalvm-community:23.0.2"
 GRAALVM_ARGS := "--no-fallback -H:+StaticExecutableWithDynamicLibC"
-# possible values: "output" or "merge"
-GRAALVM_AGENT_MODE := "merge"
 
 set unstable
 
@@ -61,39 +59,10 @@ agent-run ARGS="":
     os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
     val runArgs = "{{ARGS}}".split(" ")
     val cmd = Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "run", "--jvm", "{{GRAALVM_ID}}", "app",
-        "--java-opt=-agentlib:native-image-agent=config-{{GRAALVM_AGENT_MODE}}-dir={{NI_METADATA}}",
+        "--java-opt=-agentlib:native-image-agent=config-merge-dir={{NI_METADATA}}",
         "--") ++ runArgs
 
     os.proc(cmd).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
-
-# Run tests with native-image-agent to generate reachability metadata
-[extension(".sc")]
-agent-test:
-    #! {{SCALA_SHEBANG}}
-    //> using toolkit default
-    //> using scala 3.7.3
-    //> using jvm {{GRAALVM_ID}}
-
-    println("Running tests with native-image-agent to generate metadata...")
-    os.makeDir.all(os.pwd / "{{AGENT_OUT}}")
-    println(Seq(raw"{{SCALA_CLI_BINARY_PATH}}", "test", "--jvm", "{{GRAALVM_ID}}", "app",
-        "--java-opt=-agentlib:native-image-agent=config-{{GRAALVM_AGENT_MODE}}-dir={{NI_METADATA}}").mkString(" "))
-    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "test", "--jvm", "{{GRAALVM_ID}}", "app",
-        "--java-opt=-agentlib:native-image-agent=config-{{GRAALVM_AGENT_MODE}}-dir={{NI_METADATA}}"
-    ).call(stdout = os.Inherit, stderr = os.Inherit, stdin = os.Inherit)
-    println("Stripping test dependencies from merged metadata...")
-    val compileClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app").call().out.text().trim
-    val compileTestClassPath = os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "compile", "-p", "app", "--test").call().out.text().trim
-    val cmd = Seq(
-        raw"{{SCALA_CLI_BINARY_PATH}}", "run",
-        "--dep", "ma.chinespirit::filter-native-image-metadata:0.1.3",
-        "-M", "filterNativeImageMetadata",
-        "--",
-        "{{NI_METADATA}}/reachability-metadata.json",
-        compileClassPath,
-        compileTestClassPath
-    )
-    os.proc(cmd).call(stdout = os.Inherit, stderr = os.Inherit)
 
 # Build a runnable jar
 [extension(".sc")]
@@ -121,18 +90,18 @@ agent-e2e-test: build
     val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").getOrElse("5000")
 
     println(s"Running e2e tests with native-image-agent for {{BINARY_NAME}}.jar ...")
-    println(s"CLI_TEST_DEBUG=$debugMode, CLI_TEST_TIMEOUT_MS=$timeoutMs")
 
     val envVars = Map(
         "CLI_BINARY_PATH" -> "dist/{{BINARY_NAME}}.jar",
+        "NI_METADATA_PATH" -> "{{NI_METADATA}}",
         "NI_AGENT" -> "true",
-        "NI_AGENT_MODE" -> "{{GRAALVM_AGENT_MODE}}",
         "JAVA_HOME" -> sys.props("java.home"),
         "CLI_TEST_DEBUG" -> debugMode,
         "CLI_TEST_TIMEOUT_MS" -> timeoutMs
     )
 
-    println(s"Environment variables: $envVars")
+    if debugMode == "true" || debugMode == "1" then 
+        println(s"Environment variables: $envVars")
 
     os.proc(
         raw"{{SCALA_CLI_BINARY_PATH}}", "test", "tests", "--jvm", "{{GRAALVM_ID}}"
@@ -150,7 +119,6 @@ e2e-test: build-native
     val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").getOrElse("5000")
 
     println(s"Running e2e tests against native binary...")
-    println(s"CLI_TEST_DEBUG=$debugMode, CLI_TEST_TIMEOUT_MS=$timeoutMs")
 
     val envVars = Map(
         "CLI_BINARY_PATH" -> s"dist/{{BINARY_NAME}}",
@@ -158,7 +126,8 @@ e2e-test: build-native
         "CLI_TEST_TIMEOUT_MS" -> timeoutMs
     )
 
-    println(s"Environment variables: $envVars")
+    if debugMode == "true" || debugMode == "1" then 
+        println(s"Environment variables: $envVars")
 
     os.proc(
         raw"{{SCALA_CLI_BINARY_PATH}}", "test", "tests"
@@ -166,7 +135,7 @@ e2e-test: build-native
 
 # Build native image
 [extension(".sc")]
-build-native: agent-test
+build-native:
     #! {{SCALA_SHEBANG}}
     //> using toolkit default
     //> using scala 3.7.3

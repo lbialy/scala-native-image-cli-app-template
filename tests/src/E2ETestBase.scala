@@ -6,6 +6,7 @@ import os.RelPath
 import com.pty4j.PtyProcessBuilder
 import java.nio.charset.StandardCharsets
 import scala.jdk.CollectionConverters.*
+import scala.util.Properties
 
 /** Base class for end-to-end blackbox tests against a compiled CLI artifact.
   *
@@ -14,7 +15,7 @@ import scala.jdk.CollectionConverters.*
   *
   * Example usage:
   * {{{
-  * class MyCLITests extends CLITestBase {
+  * class MyCLITests extends E2ETestBase {
   *   test("hello command works") {
   *     val result = runCli("hello", "--who", "Alice")
   *     assertEquals(result.exitCode, 0)
@@ -36,32 +37,21 @@ import scala.jdk.CollectionConverters.*
   * }
   * }}}
   */
-abstract class CLITestBase extends FunSuite:
+abstract class E2ETestBase extends FunSuite:
 
-  // Log test configuration at startup
   override def beforeAll(): Unit =
     super.beforeAll()
-    val debugMode = sys.env.get("CLI_TEST_DEBUG").getOrElse("not set")
-    val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").getOrElse("not set")
-    val binaryPath = sys.env.get("CLI_BINARY_PATH").getOrElse("not set")
-    val niAgent = sys.env.get("NI_AGENT").getOrElse("not set")
-    println(s"[CLITestBase] Test configuration:")
-    println(s"  CLI_TEST_DEBUG=$debugMode")
-    println(s"  CLI_TEST_TIMEOUT_MS=$timeoutMs")
-    println(s"  CLI_BINARY_PATH=$binaryPath")
-    println(s"  NI_AGENT=$niAgent")
-    println(s"  OS: ${System.getProperty("os.name")}")
-    println(s"  Java: ${System.getProperty("java.version")}")
+    // Log test configuration at startup
+    if Props.debugMode then Props.preview.print()
 
-  // Override test to add logging
   override def test(name: String)(body: => Any)(implicit loc: munit.Location): Unit =
     super.test(name) {
-      println(s"[TEST START] $name")
+      if Props.debugMode then println(s"[TEST START] $name")
       val startTime = System.currentTimeMillis()
       try body
       finally
         val duration = System.currentTimeMillis() - startTime
-        println(s"[TEST END] $name (${duration}ms)")
+        if Props.debugMode then println(s"[TEST END] $name (${duration}ms)")
     }(using loc)
 
   /** Synchronized buffer for thread-safe string accumulation with optional binary capture.
@@ -107,7 +97,7 @@ abstract class CLITestBase extends FunSuite:
     * val result = session.close()
     * }}}
     */
-  class InteractiveCLISession private[CLITestBase] (
+  class InteractiveCLISession private[E2ETestBase] (
       private val process: Process,
       private val args: Seq[String]
   ):
@@ -384,6 +374,7 @@ abstract class CLITestBase extends FunSuite:
         catch
           case e: Exception =>
             println(s"[InteractiveCLISession] Failed to write binary files: ${e.getMessage}")
+      end if
 
       CLIResult(
         stdout = stdoutBuffer.current,
@@ -395,71 +386,26 @@ abstract class CLITestBase extends FunSuite:
     * Windows, automatically tries .exe extension if the path doesn't exist.
     */
   protected def cliBinaryPath: Path =
-    val envPath = sys.env.get("CLI_BINARY_PATH")
-    val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
+    if Props.isWin && os.isFile(Path(Props.binaryPath.toString + ".exe")) then Path(Props.binaryPath.toString + ".exe")
+    else Props.binaryPath
 
-    envPath match
-      case Some(path) =>
-        val p =
-          if path.startsWith("/") then Path(path)
-          else os.pwd / RelPath(path)
-
-        if os.isFile(p) then p
-        else if isWindows && os.isFile(Path(p.toString + ".exe")) then
-          // On Windows, try with .exe extension
-          Path(p.toString + ".exe")
-        else
-          throw IllegalArgumentException(
-            s"CLI_BINARY_PATH environment variable points to non-existent file: $path${
-                if isWindows then " (also tried .exe)" else ""
-              }"
-          )
-      case None =>
-        // Default to dist/myapp relative to project root
-        // Try to find project root by looking for Justfile or app/project.scala
-        val projectRoot = findProjectRoot()
-        val defaultPath = projectRoot / "dist" / "myapp"
-
-        if os.isFile(defaultPath) then defaultPath
-        else if isWindows && os.isFile(Path(defaultPath.toString + ".exe")) then
-          // On Windows, try with .exe extension
-          Path(defaultPath.toString + ".exe")
-        else
-          throw IllegalArgumentException(
-            s"CLI binary not found at default path: $defaultPath${if isWindows then " (also tried .exe)" else ""}. " +
-              s"Please set CLI_BINARY_PATH environment variable or build the binary first."
-          )
-    end match
-  /** Finds the project root by looking for Justfile or app/project.scala
-    */
-  private def findProjectRoot(): Path = boundary[Path]:
-    var current = os.pwd
-    while current != current / ".." do
-      if os.isFile(current / "Justfile") || os.isFile(current / "app" / "project.scala") then break(current)
-
-      current = current / ".."
-    end while
-    // Fallback to current working directory
-    os.pwd
-
-  /** Builds the command to execute, wrapping with native-image-agent if NI_AGENT env var is true.
-    *
-    * @param binary
-    *   Path to the CLI binary
-    * @param args
-    *   Command line arguments
-    * @return
-    *   Sequence of command parts to execute
-    */
+    /** Builds the command to execute, wrapping with native-image-agent if NI_AGENT env var is true.
+      *
+      * @param binary
+      *   Path to the CLI binary
+      * @param args
+      *   Command line arguments
+      * @return
+      *   Sequence of command parts to execute
+      */
   private def buildCommand(binary: Path, args: Seq[String]): Seq[String] =
     val useAgent = sys.env.get("NI_AGENT").exists(v => v.toLowerCase == "true" || v == "1")
-    val niAgentMode = sys.env.get("NI_AGENT_MODE").getOrElse("merge")
+    val niMetadataPath = sys.env.get("NI_METADATA_PATH").getOrElse("app/resources/META-INF/native-image")
     if useAgent then
-      val projectRoot = findProjectRoot()
-      val configOutputDir = projectRoot / "app" / "resources" / "META-INF" / "native-image"
+      val configOutputDir = os.pwd / os.SubPath(niMetadataPath)
       Seq(
         "java",
-        s"-agentlib:native-image-agent=config-$niAgentMode-dir=$configOutputDir",
+        s"-agentlib:native-image-agent=config-merge-dir=$configOutputDir",
         "-jar",
         binary.toString
       ) ++ args
@@ -496,8 +442,7 @@ abstract class CLITestBase extends FunSuite:
       .setDirectory(os.pwd.toString)
 
     // Enable Windows-specific ANSI support
-    val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
-    if isWindows then
+    if Properties.isWin then
       builder.setWindowsAnsiColorEnabled(true)
       builder.setUseWinConPty(true)
 
@@ -607,9 +552,10 @@ abstract class CLITestBase extends FunSuite:
         processStdin.write(stdinBytes)
         processStdin.flush()
         if debugMode then println(s"[runCliWithStdin] Stdin written, keeping stream open until process completes")
-      catch case _: java.io.IOException => () // stdin already closed, ignore
+      catch
+        case _: java.io.IOException => () // stdin already closed, ignore
 
-      // Wait for process to complete with timeout
+        // Wait for process to complete with timeout
       val startTime = System.currentTimeMillis()
       while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do Thread.sleep(100)
 
@@ -806,6 +752,24 @@ abstract class CLITestBase extends FunSuite:
 
     result
 
+  protected def assertStringContains(string: String, substring: String, clue: String = ""): Unit =
+    if !string.contains(substring) then
+      val message = if clue.nonEmpty then s"$clue\n" else ""
+      fail(
+        s"${message}Expected string to contain '$substring', but it didn't.\n" +
+          s"String:\n$string"
+      )
+
+  protected def assertStringContainsIgnoringAnsi(string: String, substring: String, clue: String = ""): Unit =
+    val strippedString = stripAnsiCodes(string)
+    if !strippedString.contains(substring) then
+      val message = if clue.nonEmpty then s"$clue\n" else ""
+      fail(
+        s"${message}Expected string to contain '$substring' (ignoring ANSI codes), but it didn't.\n" +
+          s"String (with ANSI codes):\n$string\n" +
+          s"String (stripped):\n$strippedString"
+      )
+
   /** Asserts that stdout contains the given substring, ignoring ANSI color codes.
     *
     * @param result
@@ -843,3 +807,36 @@ abstract class CLITestBase extends FunSuite:
           s"STDERR (with ANSI codes):\n${result.stderr}\n" +
           s"STDERR (stripped):\n$strippedStderr"
       )
+
+object Props:
+  val isWin = Properties.isWin
+  val osName = System.getProperty("os.name").toLowerCase
+  val javaVersion = System.getProperty("java.version")
+  val debugMode = sys.env.get("CLI_TEST_DEBUG").exists(v => v.toLowerCase == "true" || v == "1")
+  val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").map(_.toLong).getOrElse(30000)
+  val niAgent = sys.env.get("NI_AGENT").exists(v => v.toLowerCase == "true" || v == "1")
+  val binaryPath =
+    sys.env.get("CLI_BINARY_PATH").map(os.RelPath(_)).map(os.pwd / _).getOrElse(os.pwd / "dist" / "myapp")
+  val niMetadataPath =
+    sys.env
+      .get("NI_METADATA_PATH")
+      .map(os.RelPath(_))
+      .map(os.pwd / _)
+      .getOrElse(os.pwd / "app" / "resources" / "META-INF" / "native-image")
+
+  object preview:
+    val debugMode = sys.env.get("CLI_TEST_DEBUG").getOrElse("not set")
+    val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").getOrElse("not set")
+    val binaryPath = sys.env.get("CLI_BINARY_PATH").getOrElse("not set")
+    val niAgent = sys.env.get("NI_AGENT").getOrElse("not set")
+    val niMetadataPath = sys.env.get("NI_METADATA_PATH").getOrElse("not set")
+
+    def print(): Unit =
+      println(s"[E2ETestBase] Test configuration:")
+      println(s"  CLI_TEST_DEBUG=$debugMode")
+      println(s"  CLI_TEST_TIMEOUT_MS=$timeoutMs")
+      println(s"  CLI_BINARY_PATH=$binaryPath")
+      println(s"  NI_AGENT=$niAgent")
+      println(s"  NI_METADATA_PATH=$niMetadataPath")
+      println(s"  OS: ${Props.osName}")
+      println(s"  Java: ${Props.javaVersion}")

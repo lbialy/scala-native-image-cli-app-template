@@ -1,6 +1,6 @@
 import munit.FunSuite
 
-class MyAppTests extends CLITestBase:
+class MyAppTests extends E2ETestBase:
 
   test("hello command with --who Scala and stdin input selects great") {
     // Using PTY, stdin should work consistently across all platforms
@@ -21,10 +21,10 @@ class MyAppTests extends CLITestBase:
   test("hello command interactive test - wait for prompt then respond") {
     val session = startInteractiveCli("hello", "--who", "Scala")
 
-    val greeting = session.readUntil("Hello, Scala!", timeoutMs = 10000, ignoreAnsi = true)
-    assertStdoutContainsIgnoringAnsi(CLIResult(greeting, "", 0), "Hello, Scala!")
+    val greeting = session.readUntil("Hello, Scala!", timeoutMs = 1000, ignoreAnsi = true)
+    assertStringContainsIgnoringAnsi(greeting, "Hello, Scala!")
 
-    // Wait for the weather prompt (use default timeout from CLI_TEST_TIMEOUT_MS or 5000ms)
+    // Wait for the weather prompt
     val prompt = session.readUntil("weather", ignoreAnsi = true)
 
     // Respond to the prompt
@@ -38,5 +38,5 @@ class MyAppTests extends CLITestBase:
     // Close and get final result
     val result = session.close()
     assertCliSuccess(result)
-    assertStdoutContainsIgnoringAnsi(result, "That's not good, stay home and read a book.")
+    assertStringContainsIgnoringAnsi(result.stdout, "That's not good, stay home and read a book.")
   }
