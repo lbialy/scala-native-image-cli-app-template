@@ -4,7 +4,7 @@
 BINARY_NAME := "myapp"
 NI_METADATA := "app/resources/META-INF/native-image"
 AGENT_OUT := ".out/native-image-agent"
-GRAALVM_ID := "graalvm-community:23.0.2"
+GRAALVM_ID := "graalvm-community:25.0.1"
 GRAALVM_ARGS := "--no-fallback -H:+StaticExecutableWithDynamicLibC"
 # possible values: "output" or "merge"
 GRAALVM_AGENT_MODE := "merge"
