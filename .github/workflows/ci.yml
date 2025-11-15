@@ -78,8 +78,8 @@ jobs:
       - name: Build
         run: just compile
 
-      - name: Run agent-test (generate metadata from unit tests)
-        run: just agent-test
+      # - name: Run agent-test (generate metadata from unit tests)
+      #   run: just agent-test
 
       - name: Run agent-e2e-test (generate metadata from e2e tests)
         run: just agent-e2e-test
@@ -87,33 +87,33 @@ jobs:
           CLI_TEST_DEBUG: ${{ runner.os == 'Windows' && 'true' || 'false' }}
           CLI_TEST_TIMEOUT_MS: ${{ runner.os == 'Windows' && '2000' || '5000' }}
 
-      - name: Tree of app (pretty)
-        shell: pwsh
-        run: |
-          function Show-Tree($path) {
-            Get-ChildItem $path -Recurse |
-              ForEach-Object {
-                $_.FullName.Replace((Resolve-Path $path), $path)
-              }
-          }
+      # - name: Tree of app (pretty)
+      #   shell: pwsh
+      #   run: |
+      #     function Show-Tree($path) {
+      #       Get-ChildItem $path -Recurse |
+      #         ForEach-Object {
+      #           $_.FullName.Replace((Resolve-Path $path), $path)
+      #         }
+      #     }
       
-          Show-Tree "app"
+      #     Show-Tree "app"
 
-      - name: Upload reachability metadata - outer dir (Windows only)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: reachability-metadata-outer-${{ matrix.os_tag }}-${{ matrix.arch }}.json
-          path: app/resources/META-INF/native-image/reachability-metadata.json
-          retention-days: 7
+      # - name: Upload reachability metadata - outer dir (Windows only)
+      #   if: runner.os == 'Windows'
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: reachability-metadata-outer-${{ matrix.os_tag }}-${{ matrix.arch }}.json
+      #     path: app/resources/META-INF/native-image/reachability-metadata.json
+      #     retention-days: 7
 
-      - name: Upload reachability metadata - inner dir (Windows only)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: reachability-metadata-inner-${{ matrix.os_tag }}-${{ matrix.arch }}.json
-          path: app/resources/META-INF/native-image/my.org/myapp/reachability-metadata.json
-          retention-days: 7
+      # - name: Upload reachability metadata - inner dir (Windows only)
+      #   if: runner.os == 'Windows'
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: reachability-metadata-inner-${{ matrix.os_tag }}-${{ matrix.arch }}.json
+      #     path: app/resources/META-INF/native-image/my.org/myapp/reachability-metadata.json
+      #     retention-days: 7
 
       - name: Run e2e-test (build native & test)
         run: just e2e-test
