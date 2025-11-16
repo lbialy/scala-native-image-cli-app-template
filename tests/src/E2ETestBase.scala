@@ -39,6 +39,11 @@ import scala.util.Properties
   */
 abstract class E2ETestBase extends FunSuite:
 
+  /** Parses a boolean environment variable (accepts "true", "1" as true, case-insensitive).
+    */
+  private def parseBoolEnv(name: String): Boolean =
+    sys.env.get(name).exists(v => v.toLowerCase == "true" || v == "1")
+
   override def beforeAll(): Unit =
     super.beforeAll()
     // Log test configuration at startup
@@ -53,6 +58,28 @@ abstract class E2ETestBase extends FunSuite:
         val duration = System.currentTimeMillis() - startTime
         if Props.debugMode then println(s"[TEST END] $name (${duration}ms)")
     }(using loc)
+
+  /** Helper class to read a process stream in a background thread.
+    *
+    * @param stream
+    *   Input stream to read from
+    * @param buffer
+    *   SyncBuffer to write output to
+    * @param bufferSize
+    *   Size of read buffer (default: 8192)
+    */
+  private class StreamReaderThread(stream: java.io.InputStream, buffer: SyncBuffer, bufferSize: Int = 8192)
+      extends Thread:
+    override def run(): Unit =
+      try
+        val readBuffer = new Array[Byte](bufferSize)
+        var bytesRead = stream.read(readBuffer)
+        while bytesRead != -1 do
+          if bytesRead > 0 then
+            buffer.appendBytes(readBuffer, 0, bytesRead)
+            buffer.append(String(readBuffer, 0, bytesRead, StandardCharsets.UTF_8))
+          bytesRead = stream.read(readBuffer)
+      catch case _: java.io.IOException => () // Stream closed, normal termination
 
   /** Synchronized buffer for thread-safe string accumulation with optional binary capture.
     */
@@ -105,35 +132,12 @@ abstract class E2ETestBase extends FunSuite:
     private val stderrBuffer = SyncBuffer()
     private var stdinClosed = false
     private var processFinished = false
-    private val debugMode = sys.env.get("CLI_TEST_DEBUG").exists(v => v.toLowerCase == "true" || v == "1")
+    private val debugMode = parseBoolEnv("CLI_TEST_DEBUG")
     private val defaultTimeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").flatMap(_.toIntOption).getOrElse(5000)
 
     // Start background threads to read stdout and stderr
-    private val stdoutThread = new Thread:
-      override def run(): Unit =
-        try
-          val reader = process.getInputStream()
-          val buffer = new Array[Byte](8192)
-          var bytesRead = reader.read(buffer)
-          while bytesRead != -1 do
-            if bytesRead > 0 then
-              stdoutBuffer.appendBytes(buffer, 0, bytesRead)
-              stdoutBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
-            bytesRead = reader.read(buffer)
-        catch case _: java.io.IOException => () // Stream closed, normal termination
-
-    private val stderrThread = new Thread:
-      override def run(): Unit =
-        try
-          val reader = process.getErrorStream()
-          val buffer = new Array[Byte](8192)
-          var bytesRead = reader.read(buffer)
-          while bytesRead != -1 do
-            if bytesRead > 0 then
-              stderrBuffer.appendBytes(buffer, 0, bytesRead)
-              stderrBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
-            bytesRead = reader.read(buffer)
-        catch case _: java.io.IOException => () // Stream closed, normal termination
+    private val stdoutThread = StreamReaderThread(process.getInputStream(), stdoutBuffer, 8192)
+    private val stderrThread = StreamReaderThread(process.getErrorStream(), stderrBuffer, 8192)
 
     stdoutThread.start()
     stderrThread.start()
@@ -345,25 +349,8 @@ abstract class E2ETestBase extends FunSuite:
         process.getOutputStream().close()
         stdinClosed = true
 
-      // Wait for process with timeout
-      val startTime = System.currentTimeMillis()
-      while process.isAlive() && (System.currentTimeMillis() - startTime < waitTimeoutMs) do Thread.sleep(100)
-
-      if process.isAlive() then
-        process.destroy()
-        Thread.sleep(1000)
-        if process.isAlive() then process.destroyForcibly()
-
-      val exitCode = if process.isAlive() then -1 else process.exitValue()
+      val exitCode = waitForProcessAndCleanup(process, stdoutThread, stderrThread, waitTimeoutMs)
       processFinished = true
-
-      // Explicitly close streams to unblock reader threads
-      try process.getInputStream().close() catch case _: Exception => ()
-      try process.getErrorStream().close() catch case _: Exception => ()
-
-      // Wait for reader threads to finish
-      stdoutThread.join(2000)
-      stderrThread.join(2000)
 
       if debugMode then
         printDebugSnapshot(s"Session closed with exit code: $exitCode")
@@ -403,10 +390,8 @@ abstract class E2ETestBase extends FunSuite:
       *   Sequence of command parts to execute
       */
   private def buildCommand(binary: Path, args: Seq[String]): Seq[String] =
-    val useAgent = sys.env.get("NI_AGENT").exists(v => v.toLowerCase == "true" || v == "1")
-    val niMetadataPath = sys.env.get("NI_METADATA_PATH").getOrElse("app/resources/META-INF/native-image")
-    if useAgent then
-      val configOutputDir = os.pwd / os.SubPath(niMetadataPath)
+    if Props.niAgent then
+      val configOutputDir = Props.niMetadataPath
       Seq(
         "java",
         s"-agentlib:native-image-agent=config-merge-dir=$configOutputDir",
@@ -414,6 +399,72 @@ abstract class E2ETestBase extends FunSuite:
         binary.toString
       ) ++ args
     else Seq(binary.toString) ++ args
+
+  /** Creates a PTY process builder configured for proper terminal interaction.
+    *
+    * @param cmd
+    *   Command and arguments to execute
+    * @return
+    *   Configured PtyProcessBuilder ready to start
+    */
+  private def createPtyProcessBuilder(cmd: Seq[String]): PtyProcessBuilder =
+    // Build environment map with TERM set if not present
+    val env = new java.util.HashMap[String, String](System.getenv())
+    if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
+
+    val builder = new PtyProcessBuilder()
+      .setCommand(cmd.toArray)
+      .setEnvironment(env)
+      .setDirectory(os.pwd.toString)
+      .setInitialColumns(200) // Wide terminal to avoid line wrapping issues
+
+    // Enable Windows-specific ANSI support
+    if Props.isWin then
+      builder.setWindowsAnsiColorEnabled(true)
+      builder.setUseWinConPty(false)
+
+    builder
+
+  /** Waits for a process to complete, kills it if timeout is exceeded, then cleans up streams and threads.
+    *
+    * @param process
+    *   The process to wait for
+    * @param stdoutThread
+    *   Thread reading stdout
+    * @param stderrThread
+    *   Thread reading stderr
+    * @param timeoutMs
+    *   Maximum time to wait for process completion
+    * @return
+    *   Exit code of the process (-1 if killed due to timeout)
+    */
+  private def waitForProcessAndCleanup(
+      process: Process,
+      stdoutThread: Thread,
+      stderrThread: Thread,
+      timeoutMs: Long
+  ): Int =
+    // Wait for process with timeout
+    val startTime = System.currentTimeMillis()
+    while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do Thread.sleep(100)
+
+    // Kill process if still alive
+    if process.isAlive() then
+      process.destroy()
+      Thread.sleep(1000)
+      if process.isAlive() then process.destroyForcibly()
+
+    val exitCode = if process.isAlive() then -1 else process.exitValue()
+
+    // Explicitly close streams to unblock reader threads
+    try process.getInputStream().close() catch case _: Exception => ()
+    try process.getErrorStream().close() catch case _: Exception => ()
+
+    // Wait for reader threads to finish
+    stdoutThread.join(2000)
+    stderrThread.join(2000)
+
+    exitCode
 
   /** Starts an interactive CLI session for back-and-forth communication.
     *
@@ -434,24 +485,7 @@ abstract class E2ETestBase extends FunSuite:
   protected def startInteractiveCli(args: String*): InteractiveCLISession =
     val binary = cliBinaryPath
     val cmd = buildCommand(binary, args)
-
-    // Build environment map with TERM set if not present
-    val env = new java.util.HashMap[String, String](System.getenv())
-    if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
-
-    // Create PTY process for proper terminal interaction
-    val builder = new PtyProcessBuilder()
-      .setCommand(cmd.toArray)
-      .setEnvironment(env)
-      .setDirectory(os.pwd.toString)
-      .setInitialColumns(200) // Wide terminal to avoid line wrapping issues
-
-    // Enable Windows-specific ANSI support
-    if Props.isWin then
-      builder.setWindowsAnsiColorEnabled(true)
-      builder.setUseWinConPty(false)
-
-    val process = builder.start()
+    val process = createPtyProcessBuilder(cmd).start()
 
     InteractiveCLISession(process, args)
 
@@ -475,7 +509,7 @@ abstract class E2ETestBase extends FunSuite:
     *   CLIResult containing stdout, stderr, and exit code
     */
   protected def runCliWithStdin(stdin: String = "", timeoutMs: Long = 30000)(args: String*): CLIResult =
-    val debugMode = sys.env.get("CLI_TEST_DEBUG").exists(v => v.toLowerCase == "true" || v == "1")
+    val debugMode = parseBoolEnv("CLI_TEST_DEBUG")
     val binary = cliBinaryPath
     val cmd = buildCommand(binary, args)
 
@@ -484,25 +518,9 @@ abstract class E2ETestBase extends FunSuite:
       println(s"[runCliWithStdin] Stdin: ${stdin.replace("\n", "\\n").replace("\r", "\\r")}")
       println(s"[runCliWithStdin] Timeout: ${timeoutMs}ms")
 
-    // Build environment map with TERM set if not present
-    val env = new java.util.HashMap[String, String](System.getenv())
-    if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
-
-    // Use PTY for stdin input to ensure proper terminal handling on all platforms
     val process =
       try
-        val builder = new PtyProcessBuilder()
-          .setCommand(cmd.toArray)
-          .setEnvironment(env)
-          .setDirectory(os.pwd.toString)
-          .setInitialColumns(200) // Wide terminal to avoid line wrapping issues
-
-        // Enable Windows-specific ANSI support
-        if Props.isWin then
-          builder.setWindowsAnsiColorEnabled(true)
-          builder.setUseWinConPty(false)
-
-        builder.start()
+        createPtyProcessBuilder(cmd).start()
       catch
         case e: Exception =>
           if debugMode then
@@ -517,31 +535,8 @@ abstract class E2ETestBase extends FunSuite:
     val stdoutBuffer = SyncBuffer()
     val stderrBuffer = SyncBuffer()
 
-    val stdoutThread = new Thread:
-      override def run(): Unit =
-        try
-          val reader = process.getInputStream()
-          val buffer = new Array[Byte](4096)
-          var bytesRead = reader.read(buffer)
-          while bytesRead != -1 do
-            if bytesRead > 0 then
-              stdoutBuffer.appendBytes(buffer, 0, bytesRead)
-              stdoutBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
-            bytesRead = reader.read(buffer)
-        catch case _: java.io.IOException => ()
-
-    val stderrThread = new Thread:
-      override def run(): Unit =
-        try
-          val reader = process.getErrorStream()
-          val buffer = new Array[Byte](4096)
-          var bytesRead = reader.read(buffer)
-          while bytesRead != -1 do
-            if bytesRead > 0 then
-              stderrBuffer.appendBytes(buffer, 0, bytesRead)
-              stderrBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
-            bytesRead = reader.read(buffer)
-        catch case _: java.io.IOException => ()
+    val stdoutThread = StreamReaderThread(process.getInputStream(), stdoutBuffer, 4096)
+    val stderrThread = StreamReaderThread(process.getErrorStream(), stderrBuffer, 4096)
 
     stdoutThread.start()
     stderrThread.start()
@@ -559,33 +554,11 @@ abstract class E2ETestBase extends FunSuite:
     catch
       case _: java.io.IOException => () // stdin already closed, ignore
 
-      // Wait for process to complete with timeout
-    val startTime = System.currentTimeMillis()
-    while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do Thread.sleep(100)
-
     // Now close stdin after process completes or times out
     try processStdin.close()
     catch case _: java.io.IOException => ()
 
-    val exitCode = if process.isAlive() then
-      // Process didn't finish in time, kill it
-      if debugMode then
-        println(s"[runCliWithStdin] Process timeout after ${timeoutMs}ms, killing process")
-        println(s"[runCliWithStdin] Stdout so far: ${stdoutBuffer.current}")
-        println(s"[runCliWithStdin] Stderr so far: ${stderrBuffer.current}")
-      process.destroy()
-      Thread.sleep(1000)
-      if process.isAlive() then process.destroyForcibly()
-      -1
-    else process.exitValue()
-
-    // Explicitly close streams to unblock reader threads
-    try process.getInputStream().close() catch case _: Exception => ()
-    try process.getErrorStream().close() catch case _: Exception => ()
-
-    // Wait for reader threads to finish
-    stdoutThread.join(2000)
-    stderrThread.join(2000)
+    val exitCode = waitForProcessAndCleanup(process, stdoutThread, stderrThread, timeoutMs)
 
     if debugMode then
       println(s"[runCliWithStdin] Process finished with exit code: $exitCode")
@@ -803,12 +776,15 @@ abstract class E2ETestBase extends FunSuite:
       )
 
 object Props:
+  private def parseBoolEnv(name: String): Boolean =
+    sys.env.get(name).exists(v => v.toLowerCase == "true" || v == "1")
+
   val isWin = Properties.isWin
   val osName = System.getProperty("os.name").toLowerCase
   val javaVersion = System.getProperty("java.version")
-  val debugMode = sys.env.get("CLI_TEST_DEBUG").exists(v => v.toLowerCase == "true" || v == "1")
+  val debugMode = parseBoolEnv("CLI_TEST_DEBUG")
   val timeoutMs = sys.env.get("CLI_TEST_TIMEOUT_MS").map(_.toLong).getOrElse(30000)
-  val niAgent = sys.env.get("NI_AGENT").exists(v => v.toLowerCase == "true" || v == "1")
+  val niAgent = parseBoolEnv("NI_AGENT")
   val binaryPath =
     sys.env.get("CLI_BINARY_PATH").map(os.RelPath(_)).map(os.pwd / _).getOrElse(os.pwd / "dist" / "myapp")
   val niMetadataPath =
