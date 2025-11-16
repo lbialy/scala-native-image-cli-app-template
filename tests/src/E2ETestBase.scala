@@ -440,10 +440,10 @@ abstract class E2ETestBase extends FunSuite:
       .setCommand(cmd.toArray)
       .setEnvironment(env)
       .setDirectory(os.pwd.toString)
-      .setInitialColumns(200)  // Wide terminal to avoid line wrapping issues
+      .setInitialColumns(200) // Wide terminal to avoid line wrapping issues
 
     // Enable Windows-specific ANSI support
-    if Properties.isWin then
+    if Props.isWin then
       builder.setWindowsAnsiColorEnabled(true)
       builder.setUseWinConPty(false)
 
@@ -492,11 +492,10 @@ abstract class E2ETestBase extends FunSuite:
             .setCommand(cmd.toArray)
             .setEnvironment(env)
             .setDirectory(os.pwd.toString)
-            .setInitialColumns(200)  // Wide terminal to avoid line wrapping issues
+            .setInitialColumns(200) // Wide terminal to avoid line wrapping issues
 
           // Enable Windows-specific ANSI support
-          val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
-          if isWindows then
+          if Props.isWin then
             builder.setWindowsAnsiColorEnabled(true)
             builder.setUseWinConPty(false)
 
