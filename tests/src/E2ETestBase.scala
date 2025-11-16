@@ -440,6 +440,7 @@ abstract class E2ETestBase extends FunSuite:
       .setCommand(cmd.toArray)
       .setEnvironment(env)
       .setDirectory(os.pwd.toString)
+      .setInitialColumns(200)  // Wide terminal to avoid line wrapping issues
 
     // Enable Windows-specific ANSI support
     if Properties.isWin then
@@ -491,6 +492,7 @@ abstract class E2ETestBase extends FunSuite:
             .setCommand(cmd.toArray)
             .setEnvironment(env)
             .setDirectory(os.pwd.toString)
+            .setInitialColumns(200)  // Wide terminal to avoid line wrapping issues
 
           // Enable Windows-specific ANSI support
           val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
