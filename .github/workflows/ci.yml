@@ -86,8 +86,6 @@ jobs:
 
       - name: Run e2e-test (build native & test)
         run: just e2e-test
-        env:
-          CLI_TEST_DEBUG: "true"
 
       - name: Generate checksums
         run: just checksums ${{ matrix.os_tag }} ${{ matrix.arch }}
