@@ -554,11 +554,11 @@ abstract class E2ETestBase extends FunSuite:
     catch
       case _: java.io.IOException => () // stdin already closed, ignore
 
-    // Now close stdin after process completes or times out
+    val exitCode = waitForProcessAndCleanup(process, stdoutThread, stderrThread, timeoutMs)
+
+    // Close stdin after process completes
     try processStdin.close()
     catch case _: java.io.IOException => ()
-
-    val exitCode = waitForProcessAndCleanup(process, stdoutThread, stderrThread, timeoutMs)
 
     if debugMode then
       println(s"[runCliWithStdin] Process finished with exit code: $exitCode")
