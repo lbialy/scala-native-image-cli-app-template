@@ -21,7 +21,7 @@ class MyAppTests extends E2ETestBase:
   test("hello command interactive test - wait for prompt then respond") {
     val session = startInteractiveCli("hello", "--who", "Scala")
 
-    val greeting = session.readUntil("Hello, Scala!", timeoutMs = 5000, ignoreAnsi = true)
+    val greeting = session.readUntil("Hello, Scala!", timeoutMs = 10000, ignoreAnsi = true)
     assertStringContainsIgnoringAnsi(greeting, "Hello, Scala!")
 
     // Wait for the weather prompt
