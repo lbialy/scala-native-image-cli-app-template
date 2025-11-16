@@ -15,7 +15,11 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 SCALA_CLI_BINARY_PATH := env_var_or_default("SCALA_CLI_BINARY_PATH", "scala-cli")
 
 SCALA_SHEBANG := if os_family() == "windows" {
-    "scala-cli"
+    if env_var_or_default("GITHUB_ACTIONS", "") == "true" {
+        "scala-cli.bat"
+    } else {
+        "scala-cli"
+    }
 } else {
     "/usr/bin/env -S scala-cli shebang"
 }
@@ -35,17 +39,17 @@ binary-name:
 # Compile the application
 compile:
     @echo "Building {{BINARY_NAME}}..."
-    scala-cli compile app
+    {{SCALA_CLI_BINARY_PATH}} compile --jvm {{GRAALVM_ID}} app
 
 # Run unit tests
 test:
     @echo "Running tests in {{BINARY_NAME}}..."
-    scala-cli test app
+    {{SCALA_CLI_BINARY_PATH}} test --jvm {{GRAALVM_ID}} app
 
 # Run the application with optional arguments
 run ARGS="":
     @echo "Running {{BINARY_NAME}} with args: {{ARGS}}"
-    scala-cli run app -- {{ARGS}}
+    {{SCALA_CLI_BINARY_PATH}} run --jvm {{GRAALVM_ID}} app -- {{ARGS}}
 
 # Run with native-image-agent to generate reachability metadata
 [extension(".sc")]
@@ -74,7 +78,7 @@ build:
 
     println("Building runnable jar for {{BINARY_NAME}}...")
     os.makeDir.all(os.pwd / "dist")
-    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "package", "app", "--assembly", "-o", "dist/{{BINARY_NAME}}.jar", "-f")
+    os.proc(raw"{{SCALA_CLI_BINARY_PATH}}", "--power", "package", "app", "--assembly", "-o", "dist/{{BINARY_NAME}}.jar", "-f")
         .call(stdout = os.Inherit, stderr = os.Inherit)
     println("Runnable jar built successfully.")
 
@@ -222,7 +226,7 @@ clean-meta:
 # Set up development environment
 dev-setup:
     @echo "Setting up development environment..."
-    scala-cli setup-ide .
+    {{SCALA_CLI_BINARY_PATH}} setup-ide .
     @echo "Development setup complete."
 
 # Display current native-image metadata
