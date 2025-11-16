@@ -357,6 +357,10 @@ abstract class E2ETestBase extends FunSuite:
       val exitCode = if process.isAlive() then -1 else process.exitValue()
       processFinished = true
 
+      // Explicitly close streams to unblock reader threads
+      try process.getInputStream().close() catch case _: Exception => ()
+      try process.getErrorStream().close() catch case _: Exception => ()
+
       // Wait for reader threads to finish
       stdoutThread.join(2000)
       stderrThread.join(2000)
@@ -480,148 +484,137 @@ abstract class E2ETestBase extends FunSuite:
       println(s"[runCliWithStdin] Stdin: ${stdin.replace("\n", "\\n").replace("\r", "\\r")}")
       println(s"[runCliWithStdin] Timeout: ${timeoutMs}ms")
 
-    if stdin.nonEmpty then
-      // Build environment map with TERM set if not present
-      val env = new java.util.HashMap[String, String](System.getenv())
-      if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
+    // Build environment map with TERM set if not present
+    val env = new java.util.HashMap[String, String](System.getenv())
+    if !env.containsKey("TERM") then env.put("TERM", "xterm-256color")
 
-      // Use PTY for stdin input to ensure proper terminal handling on all platforms
-      val process =
-        try
-          val builder = new PtyProcessBuilder()
-            .setCommand(cmd.toArray)
-            .setEnvironment(env)
-            .setDirectory(os.pwd.toString)
-            .setInitialColumns(200) // Wide terminal to avoid line wrapping issues
-
-          // Enable Windows-specific ANSI support
-          if Props.isWin then
-            builder.setWindowsAnsiColorEnabled(true)
-            builder.setUseWinConPty(false)
-
-          builder.start()
-        catch
-          case e: Exception =>
-            if debugMode then
-              println(s"[runCliWithStdin] Failed to start PTY process: ${e.getMessage}")
-              e.printStackTrace()
-            throw e
-
-      if debugMode then println(s"[runCliWithStdin] PTY process spawned")
-
-      // Read stdout and stderr in separate threads to avoid blocking
-      // Start these BEFORE writing stdin to avoid race conditions
-      val stdoutBuffer = SyncBuffer()
-      val stderrBuffer = SyncBuffer()
-
-      val stdoutThread = new Thread:
-        override def run(): Unit =
-          try
-            val reader = process.getInputStream()
-            val buffer = new Array[Byte](4096)
-            var bytesRead = reader.read(buffer)
-            while bytesRead != -1 do
-              if bytesRead > 0 then
-                stdoutBuffer.appendBytes(buffer, 0, bytesRead)
-                stdoutBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
-              bytesRead = reader.read(buffer)
-          catch case _: java.io.IOException => ()
-
-      val stderrThread = new Thread:
-        override def run(): Unit =
-          try
-            val reader = process.getErrorStream()
-            val buffer = new Array[Byte](4096)
-            var bytesRead = reader.read(buffer)
-            while bytesRead != -1 do
-              if bytesRead > 0 then
-                stderrBuffer.appendBytes(buffer, 0, bytesRead)
-                stderrBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
-              bytesRead = reader.read(buffer)
-          catch case _: java.io.IOException => ()
-
-      stdoutThread.start()
-      stderrThread.start()
-
-      // Give threads a moment to start reading before we write stdin
-      Thread.sleep(50)
-
-      // Write stdin to the process (but DON'T close it yet for PTY processes)
-      val stdinBytes = stdin.getBytes(StandardCharsets.UTF_8)
-      val processStdin = process.getOutputStream()
+    // Use PTY for stdin input to ensure proper terminal handling on all platforms
+    val process =
       try
-        processStdin.write(stdinBytes)
-        processStdin.flush()
-        if debugMode then println(s"[runCliWithStdin] Stdin written, keeping stream open until process completes")
+        val builder = new PtyProcessBuilder()
+          .setCommand(cmd.toArray)
+          .setEnvironment(env)
+          .setDirectory(os.pwd.toString)
+          .setInitialColumns(200) // Wide terminal to avoid line wrapping issues
+
+        // Enable Windows-specific ANSI support
+        if Props.isWin then
+          builder.setWindowsAnsiColorEnabled(true)
+          builder.setUseWinConPty(false)
+
+        builder.start()
       catch
-        case _: java.io.IOException => () // stdin already closed, ignore
+        case e: Exception =>
+          if debugMode then
+            println(s"[runCliWithStdin] Failed to start PTY process: ${e.getMessage}")
+            e.printStackTrace()
+          throw e
 
-        // Wait for process to complete with timeout
-      val startTime = System.currentTimeMillis()
-      while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do Thread.sleep(100)
+    if debugMode then println(s"[runCliWithStdin] PTY process spawned")
 
-      // Now close stdin after process completes or times out
-      try processStdin.close()
-      catch case _: java.io.IOException => ()
+    // Read stdout and stderr in separate threads to avoid blocking
+    // Start these BEFORE writing stdin to avoid race conditions
+    val stdoutBuffer = SyncBuffer()
+    val stderrBuffer = SyncBuffer()
 
-      val exitCode = if process.isAlive() then
-        // Process didn't finish in time, kill it
-        if debugMode then
-          println(s"[runCliWithStdin] Process timeout after ${timeoutMs}ms, killing process")
-          println(s"[runCliWithStdin] Stdout so far: ${stdoutBuffer.current}")
-          println(s"[runCliWithStdin] Stderr so far: ${stderrBuffer.current}")
-        process.destroy()
-        Thread.sleep(1000)
-        if process.isAlive() then process.destroyForcibly()
-        -1
-      else process.exitValue()
-
-      // Wait for reader threads to finish
-      stdoutThread.join(2000)
-      stderrThread.join(2000)
-
-      if debugMode then
-        println(s"[runCliWithStdin] Process finished with exit code: $exitCode")
-        println(s"[runCliWithStdin] Final stdout (${stdoutBuffer.current.length} chars): ${stdoutBuffer.current}")
-        println(s"[runCliWithStdin] Final stderr (${stderrBuffer.current.length} chars): ${stderrBuffer.current}")
-
-        // Write binary output to files for debugging
+    val stdoutThread = new Thread:
+      override def run(): Unit =
         try
-          val outFile = os.pwd / "test-stdout.bin"
-          val errFile = os.pwd / "test-stderr.bin"
-          val outBytes = stdoutBuffer.currentBytes
-          val errBytes = stderrBuffer.currentBytes
-          os.write.over(outFile, outBytes)
-          os.write.over(errFile, errBytes)
-          println(s"[runCliWithStdin] Binary output written to: ${outFile} and ${errFile}")
+          val reader = process.getInputStream()
+          val buffer = new Array[Byte](4096)
+          var bytesRead = reader.read(buffer)
+          while bytesRead != -1 do
+            if bytesRead > 0 then
+              stdoutBuffer.appendBytes(buffer, 0, bytesRead)
+              stdoutBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
+            bytesRead = reader.read(buffer)
+        catch case _: java.io.IOException => ()
 
-          // Print first 256 bytes as hex for immediate debugging
-          if outBytes.nonEmpty then
-            val hexDump = outBytes.take(256).map(b => f"${b & 0xff}%02x").mkString(" ")
-            println(s"[runCliWithStdin] First ${math.min(256, outBytes.length)} bytes (hex):\n$hexDump")
-        catch
-          case e: Exception =>
-            println(s"[runCliWithStdin] Failed to write binary files: ${e.getMessage}")
+    val stderrThread = new Thread:
+      override def run(): Unit =
+        try
+          val reader = process.getErrorStream()
+          val buffer = new Array[Byte](4096)
+          var bytesRead = reader.read(buffer)
+          while bytesRead != -1 do
+            if bytesRead > 0 then
+              stderrBuffer.appendBytes(buffer, 0, bytesRead)
+              stderrBuffer.append(String(buffer, 0, bytesRead, StandardCharsets.UTF_8))
+            bytesRead = reader.read(buffer)
+        catch case _: java.io.IOException => ()
 
-      CLIResult(
-        stdout = stdoutBuffer.current,
-        stderr = stderrBuffer.current,
-        exitCode = exitCode
-      )
-    else
-      // No stdin, use os.proc for simplicity
-      val proc = os.proc(cmd)
-      val result = proc.call(
-        stdout = os.Pipe,
-        stderr = os.Pipe,
-        check = false
-      )
+    stdoutThread.start()
+    stderrThread.start()
 
-      CLIResult(
-        stdout = result.out.text(),
-        stderr = result.err.text(),
-        exitCode = result.exitCode
-      )
+    // Give threads a moment to start reading before we write stdin
+    Thread.sleep(50)
+
+    // Write stdin to the process (but DON'T close it yet for PTY processes)
+    val stdinBytes = stdin.getBytes(StandardCharsets.UTF_8)
+    val processStdin = process.getOutputStream()
+    try
+      processStdin.write(stdinBytes)
+      processStdin.flush()
+      if debugMode then println(s"[runCliWithStdin] Stdin written, keeping stream open until process completes")
+    catch
+      case _: java.io.IOException => () // stdin already closed, ignore
+
+      // Wait for process to complete with timeout
+    val startTime = System.currentTimeMillis()
+    while process.isAlive() && (System.currentTimeMillis() - startTime < timeoutMs) do Thread.sleep(100)
+
+    // Now close stdin after process completes or times out
+    try processStdin.close()
+    catch case _: java.io.IOException => ()
+
+    val exitCode = if process.isAlive() then
+      // Process didn't finish in time, kill it
+      if debugMode then
+        println(s"[runCliWithStdin] Process timeout after ${timeoutMs}ms, killing process")
+        println(s"[runCliWithStdin] Stdout so far: ${stdoutBuffer.current}")
+        println(s"[runCliWithStdin] Stderr so far: ${stderrBuffer.current}")
+      process.destroy()
+      Thread.sleep(1000)
+      if process.isAlive() then process.destroyForcibly()
+      -1
+    else process.exitValue()
+
+    // Explicitly close streams to unblock reader threads
+    try process.getInputStream().close() catch case _: Exception => ()
+    try process.getErrorStream().close() catch case _: Exception => ()
+
+    // Wait for reader threads to finish
+    stdoutThread.join(2000)
+    stderrThread.join(2000)
+
+    if debugMode then
+      println(s"[runCliWithStdin] Process finished with exit code: $exitCode")
+      println(s"[runCliWithStdin] Final stdout (${stdoutBuffer.current.length} chars): ${stdoutBuffer.current}")
+      println(s"[runCliWithStdin] Final stderr (${stderrBuffer.current.length} chars): ${stderrBuffer.current}")
+
+      // Write binary output to files for debugging
+      try
+        val outFile = os.pwd / "test-stdout.bin"
+        val errFile = os.pwd / "test-stderr.bin"
+        val outBytes = stdoutBuffer.currentBytes
+        val errBytes = stderrBuffer.currentBytes
+        os.write.over(outFile, outBytes)
+        os.write.over(errFile, errBytes)
+        println(s"[runCliWithStdin] Binary output written to: ${outFile} and ${errFile}")
+
+        // Print first 256 bytes as hex for immediate debugging
+        if outBytes.nonEmpty then
+          val hexDump = outBytes.take(256).map(b => f"${b & 0xff}%02x").mkString(" ")
+          println(s"[runCliWithStdin] First ${math.min(256, outBytes.length)} bytes (hex):\n$hexDump")
+      catch
+        case e: Exception =>
+          println(s"[runCliWithStdin] Failed to write binary files: ${e.getMessage}")
+
+    CLIResult(
+      stdout = stdoutBuffer.current,
+      stderr = stderrBuffer.current,
+      exitCode = exitCode
+    )
 
   /** Runs the CLI with the given arguments and returns the result as a Try. Useful for testing error cases.
     *
