@@ -444,7 +444,7 @@ abstract class E2ETestBase extends FunSuite:
     // Enable Windows-specific ANSI support
     if Properties.isWin then
       builder.setWindowsAnsiColorEnabled(true)
-      builder.setUseWinConPty(true)
+      builder.setUseWinConPty(false)
 
     val process = builder.start()
 
@@ -496,7 +496,7 @@ abstract class E2ETestBase extends FunSuite:
           val isWindows = System.getProperty("os.name").toLowerCase.contains("win")
           if isWindows then
             builder.setWindowsAnsiColorEnabled(true)
-            builder.setUseWinConPty(true)
+            builder.setUseWinConPty(false)
 
           builder.start()
         catch
