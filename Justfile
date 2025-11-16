@@ -6,7 +6,7 @@ BINARY_NAME := "myapp"
 NI_METADATA := "app/resources/META-INF/native-image/my.org/myapp"
 AGENT_OUT := ".out/native-image-agent"
 GRAALVM_ID := "graalvm-community:23.0.2"
-GRAALVM_ARGS := "--no-fallback -H:+StaticExecutableWithDynamicLibC"
+GRAALVM_ARGS := "--no-fallback -H:+StaticExecutableWithDynamicLibC -H:+AddAllCharsets"
 
 set unstable
 
