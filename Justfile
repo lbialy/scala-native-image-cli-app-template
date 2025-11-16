@@ -15,7 +15,7 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 SCALA_CLI_BINARY_PATH := env_var_or_default("SCALA_CLI_BINARY_PATH", "scala-cli")
 
 SCALA_SHEBANG := if os_family() == "windows" {
-    "scala-cli.bat"
+    "scala-cli"
 } else {
     "/usr/bin/env -S scala-cli shebang"
 }
@@ -45,7 +45,7 @@ test:
 # Run the application with optional arguments
 run ARGS="":
     @echo "Running {{BINARY_NAME}} with args: {{ARGS}}"
-    scala-cli --power run app -- {{ARGS}}
+    scala-cli run app -- {{ARGS}}
 
 # Run with native-image-agent to generate reachability metadata
 [extension(".sc")]
@@ -203,8 +203,9 @@ clean-agent:
 
     println("Cleaning agent output...")
     os.remove.all(os.pwd / "{{AGENT_OUT}}")
-    os.list(os.pwd / "{{NI_METADATA}}").filter(_.last.startsWith("agent-pid")).foreach(os.remove.all)
-    os.remove.all(os.pwd / "{{NI_METADATA}}" / ".lock")
+    if os.exists(os.pwd / "{{NI_METADATA}}") then
+        os.list(os.pwd / "{{NI_METADATA}}").filter(_.last.startsWith("agent-pid")).foreach(os.remove.all)
+        os.remove.all(os.pwd / "{{NI_METADATA}}" / ".lock")
 
 # Clean native-image metadata
 [extension(".sc")]

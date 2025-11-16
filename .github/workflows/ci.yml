@@ -56,7 +56,7 @@ jobs:
           echo "BINARY_NAME=$(just binary-name)" >> $GITHUB_ENV
 
       - name: Setup Scala CLI
-        uses: VirtusLab/scala-cli-setup@v1.9.1
+        uses: VirtusLab/scala-cli-setup@v1.10.1
         with:
           power: true
           jvm: ${{ env.GRAALVM_ID }}
